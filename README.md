@@ -1,11 +1,24 @@
-<div align="center">
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+# Mobile Hospital - Shop Website
 
-  <h1>Built with AI Studio</h2>
+Ye aapki second-hand mobile shop ki website ka code hai. Isse aap asani se Vercel par deploy kar sakte hain.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## GitHub par kaise upload karein:
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+1. Ek naya folder banayein aur ye saari files usme rakhein.
+2. GitHub par naya repository banayein (`mobile-hospital`).
+3. GitHub Desktop application ya terminal se code push karein.
 
-</div>
+## Vercel par Live kaise karein:
+
+1. [Vercel](https://vercel.com) par jayein.
+2. GitHub repository select karein.
+3. **Important:** Environment Variables mein `API_KEY` dalein (Aapki Gemini API Key).
+4. 'Deploy' par click karein.
+
+## Features:
+- Browse Mobiles & Accessories
+- WhatsApp & Call Integration
+- Admin Panel (Hospital@3030 password)
+- AI Description Generator
+- Mobile Friendly Design

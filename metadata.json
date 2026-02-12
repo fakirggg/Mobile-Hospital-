@@ -1,0 +1,7 @@
+{
+  "name": "Second Hand Mobile & Accessories Shop",
+  "description": "A clean, modern catalog app for a mobile shop with features to browse products, contact via WhatsApp/Call, and an admin panel for inventory management.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
