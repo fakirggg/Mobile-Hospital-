@@ -1,24 +1,28 @@
+# Mobile Hospital - Simple Shop Catalog App
 
-# Mobile Hospital - Shop Website
+Ye app second-hand mobile aur accessories shop ke liye banayi gayi hai.
+Isme online payment/order nahi hai - sirf product listing aur contact features hain.
 
-Ye aapki second-hand mobile shop ki website ka code hai. Isse aap asani se Vercel par deploy kar sakte hain.
+## Features
+- Mobile phones list with photo
+- Product details: model name, price, condition, storage & RAM
+- Accessories section (charger, earphones, cover, etc.)
+- WhatsApp contact button
+- Call button
+- Shop address + Google Maps location link
+- Simple clean UI
+- Admin panel for add/edit/delete products
 
-## GitHub par kaise upload karein:
+## Admin Login
+- Password: `Hospital@3030`
 
-1. Ek naya folder banayein aur ye saari files usme rakhein.
-2. GitHub par naya repository banayein (`mobile-hospital`).
-3. GitHub Desktop application ya terminal se code push karein.
+## Run locally
+```bash
+npm install
+npm run dev
+```
 
-## Vercel par Live kaise karein:
-
-1. [Vercel](https://vercel.com) par jayein.
-2. GitHub repository select karein.
-3. **Important:** Environment Variables mein `API_KEY` dalein (Aapki Gemini API Key).
-4. 'Deploy' par click karein.
-
-## Features:
-- Browse Mobiles & Accessories
-- WhatsApp & Call Integration
-- Admin Panel (Hospital@3030 password)
-- AI Description Generator
-- Mobile Friendly Design
+## Build
+```bash
+npm run build
+```
