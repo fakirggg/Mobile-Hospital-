@@ -7,8 +7,8 @@ export const ShopLogo = ({ className = "h-12 w-auto" }: { className?: string }) 
     viewBox="0 0 300 350" 
     xmlns="http://www.w3.org/2000/svg"
   >
-    <rect x="5" y="5" width="290" height="340" fill="white" stroke="black" stroke-width="4"/>
-    <rect x="12" y="12" width="276" height="326" fill="none" stroke="black" stroke-width="2"/>
+    <rect x="5" y="5" width="290" height="340" fill="white" stroke="black" strokeWidth="4"/>
+    <rect x="12" y="12" width="276" height="326" fill="none" stroke="black" strokeWidth="2"/>
     <path 
       d="M50 50 L150 160 L250 50 L250 220 L205 220 L205 105 L150 175 L95 105 L95 220 L50 220 Z" 
       fill="black"

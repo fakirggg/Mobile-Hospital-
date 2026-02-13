@@ -5,6 +5,18 @@ import { INITIAL_PRODUCTS, SHOP_DETAILS, INITIAL_BANNERS } from './constants';
 import { PhoneIcon, MessageIcon, LocationIcon, PlusIcon, EditIcon, TrashIcon, SparklesIcon, UsersIcon, SettingsIcon, ShareIcon, BackIcon, BannerIcon, ShopLogo } from './components/Icons';
 import { generateProductDescription } from './services/geminiService';
 
+// Safe Storage Helper to prevent crashes
+const getSafeStorage = <T,>(key: string, defaultValue: T): T => {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return defaultValue;
+    return JSON.parse(saved);
+  } catch (e) {
+    console.error(`Error loading ${key} from storage:`, e);
+    return defaultValue;
+  }
+};
+
 const LiveClock: React.FC = () => {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -27,17 +39,10 @@ const LiveClock: React.FC = () => {
 type AuthMode = 'login' | 'signup' | 'admin-login' | 'none';
 
 const App: React.FC = () => {
-  // Persistence States
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('shop_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
-  const [banners, setBanners] = useState<Banner[]>(() => {
-    const saved = localStorage.getItem('shop_banners');
-    return saved ? JSON.parse(saved) : INITIAL_BANNERS;
-  });
+  // Persistence States with Error Handling
+  const [products, setProducts] = useState<Product[]>(() => getSafeStorage('shop_products', INITIAL_PRODUCTS));
+  const [banners, setBanners] = useState<Banner[]>(() => getSafeStorage('shop_banners', INITIAL_BANNERS));
   const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('shop_users');
     const defaultAdmin: User = { 
       id: 'admin-1', 
       name: 'Dealer Admin', 
@@ -46,52 +51,50 @@ const App: React.FC = () => {
       role: 'admin',
       createdAt: Date.now()
     };
-    return saved ? JSON.parse(saved) : [defaultAdmin];
+    return getSafeStorage('shop_users', [defaultAdmin]);
   });
   
-  const [shopInfo, setShopInfo] = useState<ShopInfo>(() => {
-    const saved = localStorage.getItem('shop_info');
-    return saved ? JSON.parse(saved) : SHOP_DETAILS;
-  });
-
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('shop_current_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [authMode, setAuthMode] = useState<AuthMode>(() => {
-    const savedUser = localStorage.getItem('shop_current_user');
-    return savedUser ? 'none' : 'login';
-  });
-
-  // Auth States
-  const [authFormData, setAuthFormData] = useState({ name: '', phoneNumber: '', password: '' });
+  const [shopInfo, setShopInfo] = useState<ShopInfo>(() => getSafeStorage('shop_info', SHOP_DETAILS));
+  const [currentUser, setCurrentUser] = useState<User | null>(() => getSafeStorage('shop_current_user', null));
+  const [authMode, setAuthMode] = useState<AuthMode>(() => currentUser ? 'none' : 'login');
 
   useEffect(() => {
-    localStorage.setItem('shop_products', JSON.stringify(products));
-    localStorage.setItem('shop_banners', JSON.stringify(banners));
-    localStorage.setItem('shop_users', JSON.stringify(users));
-    localStorage.setItem('shop_info', JSON.stringify(shopInfo));
-    if (currentUser) {
-      localStorage.setItem('shop_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('shop_current_user');
+    try {
+      localStorage.setItem('shop_products', JSON.stringify(products));
+      localStorage.setItem('shop_banners', JSON.stringify(banners));
+      localStorage.setItem('shop_users', JSON.stringify(users));
+      localStorage.setItem('shop_info', JSON.stringify(shopInfo));
+      if (currentUser) {
+        localStorage.setItem('shop_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('shop_current_user');
+      }
+    } catch (e) {
+      console.error("Failed to sync storage:", e);
     }
   }, [products, banners, users, currentUser, shopInfo]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = users.find(u => u.phoneNumber === authFormData.phoneNumber && u.password === authFormData.password);
-    if (user) {
-      setCurrentUser(user);
-      setAuthMode('none');
-    } else {
-      alert('Galat number ya password! Kripya sahi jaankari bharein.');
+    const user = users.find(u => u.phoneNumber === authFormData.phoneNumber);
+    if (!user) {
+      alert('Yeh mobile number registered nahi hai! Kripya naya account banayein (Sign Up).');
+      return;
     }
+    if (user.password !== authFormData.password) {
+      alert('Galat Password! Kripya sahi password dalein.');
+      return;
+    }
+    setCurrentUser(user);
+    setAuthMode('none');
   };
 
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authFormData.phoneNumber || !authFormData.password || !authFormData.name) {
+      alert('Saari details bharna zaroori hai!');
+      return;
+    }
     if (users.some(u => u.phoneNumber === authFormData.phoneNumber)) {
       alert('Yeh number pehle se registered hai. Kripya login karein.');
       setAuthMode('login');
@@ -113,13 +116,17 @@ const App: React.FC = () => {
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
-    const admin = users.find(u => u.role === 'admin' && u.phoneNumber === authFormData.phoneNumber && u.password === authFormData.password);
-    if (admin) {
-      setCurrentUser(admin);
-      setAuthMode('none');
-    } else {
-      alert('Admin login galat hai.');
+    const admin = users.find(u => u.role === 'admin' && u.phoneNumber === authFormData.phoneNumber);
+    if (!admin) {
+      alert('Admin account nahi mila! Kripya sahi admin number dalein.');
+      return;
     }
+    if (admin.password !== authFormData.password) {
+      alert('Galat Admin Password! Kripya check karein.');
+      return;
+    }
+    setCurrentUser(admin);
+    setAuthMode('none');
   };
 
   const handleLogout = () => {
@@ -159,25 +166,19 @@ const App: React.FC = () => {
   }, [products, activeTab, searchQuery]);
 
   const handleShare = async () => {
-    const shareData = {
-      title: shopInfo.name,
-      text: `Check out the latest second-hand mobiles at ${shopInfo.name}!`,
-      url: window.location.href,
-    };
+    const shareData = { title: shopInfo.name, text: `Check this out!`, url: window.location.href };
     try {
       if (navigator.share) await navigator.share(shareData);
       else {
         await navigator.clipboard.writeText(window.location.href);
-        alert('Link copy ho gaya!');
+        alert('Link copied!');
       }
     } catch (err) {}
   };
 
   const openWhatsApp = (e?: React.MouseEvent, productName?: string) => {
     if (e) e.stopPropagation();
-    const text = productName 
-      ? `Hello, I'm interested in "${productName}" at ${shopInfo.name}.` 
-      : `Hello, I'm interested in products at ${shopInfo.name}.`;
+    const text = productName ? `Interested in ${productName}` : `Hello`;
     window.open(`https://wa.me/${shopInfo.whatsapp}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -186,58 +187,73 @@ const App: React.FC = () => {
     window.location.href = `tel:${shopInfo.phone}`;
   };
 
+  const [authFormData, setAuthFormData] = useState({ name: '', phoneNumber: '', password: '' });
+
   if (authMode !== 'none') {
     return (
       <div className="min-h-screen bg-[#2874f0] flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
-          <div className="bg-[#2874f0] p-8 text-white text-center">
-            <div className="flex justify-center mb-4"><ShopLogo className="h-16 w-auto" /></div>
-            <h1 className="text-3xl font-black italic tracking-tighter mb-2">{shopInfo.name.toUpperCase()}</h1>
-            <p className="text-xs opacity-75 uppercase tracking-widest font-bold">
-              {authMode === 'login' ? 'Login' : authMode === 'signup' ? 'Create Account' : 'Dealer Portal'}
+        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in fade-in duration-300">
+          <div className="bg-[#2874f0] p-10 text-white text-center">
+             <div className="flex justify-center mb-4">
+               <ShopLogo className="h-16 w-auto brightness-0 invert" />
+             </div>
+            <h1 className="text-3xl font-black italic mb-2 tracking-tighter uppercase">{shopInfo.name}</h1>
+            <p className="text-xs font-bold opacity-75 uppercase tracking-[3px]">
+              {authMode === 'signup' ? 'Create Account' : authMode === 'admin-login' ? 'Dealer Portal' : 'Login'}
             </p>
           </div>
-          
+
           <div className="p-8">
-            {authMode === 'login' && (
-              <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={authMode === 'login' ? handleLogin : authMode === 'signup' ? handleSignup : handleAdminAuth} className="space-y-5">
+              {authMode === 'signup' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400 ml-1">Full Name</label>
+                  <input type="text" placeholder="" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none focus:border-[#2874f0] transition-colors" value={authFormData.name} onChange={e => setAuthFormData({...authFormData, name: e.target.value})} />
+                </div>
+              )}
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-400 ml-1">
+                  {authMode === 'admin-login' ? 'Admin Mobile' : 'Mobile Number'}
+                </label>
                 <div className="relative">
                   <span className="absolute left-0 bottom-3 text-sm text-gray-500 font-bold">+91</span>
-                  <input type="tel" required maxLength={10} placeholder="Mobile Number" className="w-full border-b-2 border-gray-100 py-3 pl-9 focus:border-[#2874f0] outline-none text-sm transition-colors" value={authFormData.phoneNumber} onChange={e => setAuthFormData({ ...authFormData, phoneNumber: e.target.value.replace(/\D/g, '') })} />
+                  <input type="tel" maxLength={10} placeholder="" className="w-full border-b-2 border-gray-100 py-3 pl-9 outline-none text-sm focus:border-[#2874f0] transition-colors" value={authFormData.phoneNumber} onChange={e => setAuthFormData({...authFormData, phoneNumber: e.target.value.replace(/\D/g, '')})} />
                 </div>
-                <input type="password" required placeholder="Password" className="w-full border-b-2 border-gray-100 py-3 focus:border-[#2874f0] outline-none text-sm" value={authFormData.password} onChange={e => setAuthFormData({ ...authFormData, password: e.target.value })} />
-                <button type="submit" className="w-full bg-[#fb641b] text-white py-4 rounded-xl font-bold uppercase shadow-lg shadow-orange-500/30 hover:bg-[#e6550e] transition-all">Login</button>
-                <div className="flex flex-col gap-3 pt-4 text-center">
-                  <button type="button" onClick={() => setAuthMode('signup')} className="text-[#2874f0] text-sm font-bold hover:underline">New here? Sign Up Now</button>
-                  <button type="button" onClick={() => setAuthMode('admin-login')} className="mt-4 text-[10px] text-gray-300 font-bold uppercase tracking-widest">Dealer Login</button>
-                </div>
-              </form>
-            )}
+              </div>
 
-            {authMode === 'signup' && (
-              <form onSubmit={handleSignup} className="space-y-4">
-                <input type="text" required placeholder="Full Name" className="w-full border-b-2 border-gray-100 py-3 focus:border-[#2874f0] outline-none text-sm" value={authFormData.name} onChange={e => setAuthFormData({ ...authFormData, name: e.target.value })} />
-                <div className="relative">
-                  <span className="absolute left-0 bottom-3 text-sm text-gray-500 font-bold">+91</span>
-                  <input type="tel" required maxLength={10} placeholder="Mobile Number" className="w-full border-b-2 border-gray-100 py-3 pl-9 focus:border-[#2874f0] outline-none text-sm" value={authFormData.phoneNumber} onChange={e => setAuthFormData({ ...authFormData, phoneNumber: e.target.value.replace(/\D/g, '') })} />
-                </div>
-                <input type="password" required placeholder="Set Password" lg:placeholder="Min 4 chars" className="w-full border-b-2 border-gray-100 py-3 focus:border-[#2874f0] outline-none text-sm" value={authFormData.password} onChange={e => setAuthFormData({ ...authFormData, password: e.target.value })} />
-                <button type="submit" className="w-full bg-[#fb641b] text-white py-4 rounded-xl font-bold uppercase shadow-lg shadow-orange-500/30">Sign Up</button>
-                <button type="button" onClick={() => setAuthMode('login')} className="w-full text-[#2874f0] text-sm font-bold hover:underline mt-4">Already have an account? Login</button>
-              </form>
-            )}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-400 ml-1">Password</label>
+                <input type="password" placeholder="" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm focus:border-[#2874f0] transition-colors" value={authFormData.password} onChange={e => setAuthFormData({...authFormData, password: e.target.value})} />
+              </div>
 
-            {authMode === 'admin-login' && (
-              <form onSubmit={handleAdminAuth} className="space-y-4">
-                <div className="relative">
-                  <span className="absolute left-0 bottom-3 text-sm text-gray-500 font-bold">+91</span>
-                  <input type="tel" required maxLength={10} placeholder="Admin Mobile" className="w-full border-b-2 border-gray-100 py-3 pl-9 focus:border-[#2874f0] outline-none text-sm" value={authFormData.phoneNumber} onChange={e => setAuthFormData({ ...authFormData, phoneNumber: e.target.value.replace(/\D/g, '') })} />
-                </div>
-                <input type="password" required placeholder="Admin Password" className="w-full border-b-2 border-gray-100 py-3 focus:border-[#2874f0] outline-none text-sm" value={authFormData.password} onChange={e => setAuthFormData({ ...authFormData, password: e.target.value })} />
-                <button type="submit" className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold uppercase shadow-lg">Login as Dealer</button>
-                <button type="button" onClick={() => setAuthMode('login')} className="w-full text-gray-400 text-sm font-medium hover:underline mt-2">Go back to Customer Login</button>
-              </form>
-            )}
+              <button type="submit" className={`w-full ${authMode === 'admin-login' ? 'bg-gray-900' : 'bg-[#fb641b]'} text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all mt-4`}>
+                {authMode === 'signup' ? 'Sign Up' : authMode === 'admin-login' ? 'Login as Dealer' : 'Log In'}
+              </button>
+              
+              <div className="text-center pt-2 flex flex-col gap-3">
+                {authMode === 'login' && (
+                  <>
+                    <button type="button" onClick={() => setAuthMode('signup')} className="text-[#2874f0] text-sm font-bold hover:underline">
+                      New user? Create an account
+                    </button>
+                    <button type="button" onClick={() => setAuthMode('admin-login')} className="mt-4 text-[10px] text-gray-300 font-bold uppercase tracking-widest hover:text-gray-500 transition-colors">
+                      Dealer Login
+                    </button>
+                  </>
+                )}
+                {authMode === 'signup' && (
+                  <button type="button" onClick={() => setAuthMode('login')} className="text-[#2874f0] text-sm font-bold hover:underline">
+                    Already have an account? Login
+                  </button>
+                )}
+                {authMode === 'admin-login' && (
+                   <button type="button" onClick={() => setAuthMode('login')} className="text-[#2874f0] text-sm font-bold hover:underline">
+                     Back to Customer Login
+                   </button>
+                )}
+              </div>
+            </form>
           </div>
         </div>
       </div>
@@ -246,261 +262,437 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] pb-24 text-left">
-      <header className="bg-[#2874f0] text-white sticky top-0 z-40 shadow-lg">
+      <header className="bg-[#2874f0] text-white sticky top-0 z-40 shadow-lg px-4 py-3">
+        <div className="max-w-4xl mx-auto flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+             <div className="flex items-center gap-2">
+                <div className="flex flex-col">
+                  <h1 className="text-xl font-black italic tracking-tighter leading-none">{shopInfo.name.toUpperCase()}</h1>
+                  <div className="h-[2px] w-8 bg-yellow-400 mt-1"></div>
+                </div>
+             </div>
+             <div className="flex items-center gap-2">
+               {currentUser?.role === 'admin' && <LiveClock />}
+               <button onClick={handleLogout} className="text-[10px] font-bold border border-white/40 px-2 py-1 rounded">Logout</button>
+             </div>
+          </div>
+          <input type="text" placeholder="Search products..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 py-2 rounded text-gray-800 text-sm outline-none shadow-inner" />
+        </div>
+      </header>
+
+      <nav className="bg-white shadow-sm sticky top-[108px] z-30 flex max-w-4xl mx-auto border-b">
+        {['All', 'Mobile', 'Accessories'].map((tab) => (
+          <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-all ${activeTab === tab ? 'border-[#2874f0] text-[#2874f0]' : 'border-transparent text-gray-400'}`}>{tab}</button>
+        ))}
+      </nav>
+
+      {banners.length > 0 && (
         <div className="max-w-4xl mx-auto px-4 py-3">
-          <div className="flex justify-between items-center mb-3">
-            <div className="flex items-center gap-3">
-              <ShopLogo className="h-8 w-auto invert brightness-0" />
-              <div className="flex flex-col">
-                <h1 className="text-xl font-black italic tracking-tighter leading-none">{shopInfo.name.toUpperCase()}</h1>
-                <div className="h-[2px] w-8 bg-yellow-400 mt-1 rounded-full"></div>
+          <div className="relative h-36 rounded-2xl overflow-hidden shadow-xl bg-gray-200">
+            {banners.map((banner, index) => (
+              <div key={banner.id} className={`absolute inset-0 transition-all duration-700 ${banner.bg} flex items-center p-6 text-white`} style={{ transform: `translateX(${(index - currentBanner) * 100}%)`, opacity: currentBanner === index ? 1 : 0 }}>
+                <div className="flex-1 z-10">
+                  <span className="bg-black/20 text-[9px] px-2 py-0.5 rounded font-bold uppercase mb-1 inline-block">{banner.tag}</span>
+                  <h2 className="text-lg font-bold line-clamp-1">{banner.title}</h2>
+                  <p className="text-xs opacity-80 line-clamp-1">{banner.subtitle}</p>
+                </div>
+                <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-30">
+                  {banner.image && <img src={banner.image} className="h-full w-full object-cover" alt="banner" />}
+                </div>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-gray-100">
+        {filteredProducts.map((p) => (
+          <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white p-4 flex gap-4 cursor-pointer hover:bg-gray-50 transition-colors">
+            <div className="w-24 h-24 flex-shrink-0 bg-gray-50 rounded-lg p-2 overflow-hidden border border-gray-100">
+              <img src={p.image} className="w-full h-full object-contain" alt={p.name} />
             </div>
-            <div className="flex gap-3 items-center">
-              {currentUser?.role === 'admin' && <LiveClock />}
-              <button onClick={handleShare} className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition-all" title="Share Website">
-                <ShareIcon />
-              </button>
-              <div className="h-8 w-[1px] bg-white/20"></div>
-              {currentUser && (
-                <div className="flex items-center gap-3">
-                  <div className="hidden sm:block text-right">
-                    <p className="text-[9px] font-bold text-yellow-300 uppercase">{currentUser.role}</p>
-                    <p className="text-xs font-medium truncate max-w-[80px]">{currentUser.name}</p>
-                  </div>
-                  <button onClick={handleLogout} className="text-[10px] font-bold border border-white/40 px-3 py-1 rounded-sm uppercase">Logout</button>
+            <div className="flex-1 min-w-0 flex flex-col justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800 truncate leading-tight">{p.name}</h3>
+                <div className="flex gap-1 items-center mt-1">
+                  <span className="bg-green-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold">4.5★</span>
+                  <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{p.condition}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                   {p.specs.ram && <span className="text-[8px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold border border-blue-100">{p.specs.ram} RAM</span>}
+                   {p.specs.storage && <span className="text-[8px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-bold border border-purple-100">{p.specs.storage} ROM</span>}
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2 mt-auto">
+                <span className="text-lg font-black text-[#2874f0]">₹{p.price.toLocaleString()}</span>
+                <span className="text-[10px] text-gray-400 line-through">₹{(p.price * 1.5).toLocaleString()}</span>
+              </div>
+              {currentUser?.role === 'admin' && (
+                <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => {setEditingProduct(p); setShowAdminModal(true)}} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><EditIcon /></button>
+                  <button onClick={() => {if(confirm('Delete?')) setProducts(products.filter(pr => pr.id !== p.id))}} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><TrashIcon /></button>
                 </div>
               )}
             </div>
           </div>
-          <div className="relative">
-            <input type="text" placeholder="Search products..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-4 py-2 rounded-sm text-gray-800 focus:outline-none text-sm shadow-inner" />
-            <div className="absolute right-3 top-2 text-[#2874f0] opacity-50"><svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
-          </div>
-        </div>
-      </header>
-
-      <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-[110px] z-30">
-        <div className="max-w-4xl mx-auto flex px-4">
-          {['All', 'Mobile', 'Accessories'].map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-all ${activeTab === tab ? 'border-[#2874f0] text-[#2874f0]' : 'border-transparent text-gray-400'}`}>{tab}</button>
-          ))}
-        </div>
-      </nav>
-
-      {banners.length > 0 && (
-        <div className="bg-white py-3">
-          <div className="max-w-4xl mx-auto px-4">
-            <div className="relative h-36 rounded-2xl overflow-hidden shadow-xl shadow-blue-500/10">
-              {banners.map((banner, index) => (
-                <div key={banner.id} className={`absolute inset-0 transition-all duration-700 ${banner.bg} flex items-center p-6 text-white`} style={{ transform: `translateX(${(index - currentBanner) * 100}%)`, opacity: currentBanner === index ? 1 : 0 }}>
-                  <div className="flex-1 z-10">
-                    <span className="bg-black/20 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase mb-1 inline-block">{banner.tag}</span>
-                    <h2 className="text-lg font-bold line-clamp-1">{banner.title}</h2>
-                    <p className="text-xs opacity-80 line-clamp-1">{banner.subtitle}</p>
-                  </div>
-                  <div className="absolute right-0 top-0 bottom-0 w-1/2 overflow-hidden flex items-center justify-center opacity-40">
-                    <img src={banner.image} className="h-full w-full object-cover" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <main className="max-w-4xl mx-auto py-2">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-gray-100">
-          {filteredProducts.map((product) => (
-            <div key={product.id} onClick={() => setSelectedProduct(product)} className="bg-white p-4 flex gap-4 cursor-pointer hover:bg-gray-50 transition-colors">
-              <div className="w-28 h-28 flex-shrink-0 flex items-center justify-center bg-gray-50 rounded-xl p-2 border border-gray-50 overflow-hidden">
-                <img src={product.image} className="max-h-full max-w-full object-contain" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-bold text-gray-800 line-clamp-2 leading-tight">{product.name}</h3>
-                <div className="flex items-center gap-2 my-1">
-                  <span className="bg-green-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">4.5 ★</span>
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{product.condition}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1 mb-1">
-                   {product.specs.ram && <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold">{product.specs.ram} RAM</span>}
-                   {product.specs.storage && <span className="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-bold">{product.specs.storage} ROM</span>}
-                </div>
-                <div className="flex items-baseline gap-2 mt-auto">
-                  <span className="text-lg font-black text-[#2874f0]">₹{product.price.toLocaleString()}</span>
-                  <span className="text-[10px] text-gray-400 line-through">₹{(product.price * 1.5).toLocaleString()}</span>
-                </div>
-                {currentUser?.role === 'admin' && (
-                  <div className="flex gap-2 mt-2">
-                    <button onClick={(e) => { e.stopPropagation(); setEditingProduct(product); setShowAdminModal(true); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><EditIcon /></button>
-                    <button onClick={(e) => { e.stopPropagation(); if(confirm('Delete?')) setProducts(products.filter(p => p.id !== product.id)); }} className="p-2 bg-red-50 text-red-600 rounded-lg"><TrashIcon /></button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        ))}
       </main>
 
-      <footer className="max-w-4xl mx-auto px-4 mt-6 mb-20 text-center">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h2 className="text-xs font-black uppercase text-gray-400 mb-2 tracking-widest">Store Location</h2>
-          <p className="text-sm font-medium text-gray-700 mb-4 leading-relaxed">{shopInfo.address}</p>
+      <footer className="max-w-4xl mx-auto px-4 mt-6 text-center">
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 mb-20">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Our Store</p>
+          <p className="text-sm text-gray-700 mb-4 font-medium leading-relaxed">{shopInfo.address}</p>
           <div className="flex gap-3">
-            <a href={shopInfo.googleMapUrl} target="_blank" className="flex-1 bg-[#2874f0] text-white py-3 text-[10px] font-bold uppercase rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"><LocationIcon /> Google Maps</a>
-            <button onClick={handleShare} className="flex-1 border border-gray-100 py-3 text-[10px] font-bold uppercase rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50"><ShareIcon /> Share Shop</button>
+            <a href={shopInfo.googleMapUrl} target="_blank" rel="noreferrer" className="flex-1 bg-[#2874f0] text-white py-3.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10"><LocationIcon /> Map</a>
+            <button onClick={handleShare} className="flex-1 border-2 border-gray-100 py-3.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2 hover:bg-gray-50"><ShareIcon /> Share</button>
           </div>
         </div>
       </footer>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 flex p-4 gap-3 z-50 max-w-4xl mx-auto shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-        <button onClick={() => openWhatsApp()} className="flex-1 border-2 border-gray-100 py-3.5 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 text-gray-700"><MessageIcon /> WhatsApp</button>
-        <button onClick={() => makeCall()} className="flex-1 bg-[#fb641b] text-white py-3.5 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-orange-500/30"><PhoneIcon /> Call Store</button>
+      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t p-4 flex gap-3 z-40 max-w-4xl mx-auto shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+        <button onClick={() => openWhatsApp()} className="flex-1 bg-[#25D366] text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-green-500/20 active:scale-95 transition-all"><MessageIcon /> WhatsApp</button>
+        <button onClick={() => makeCall()} className="flex-1 bg-[#fb641b] text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-orange-500/30 active:scale-95 transition-all"><PhoneIcon /> Call Store</button>
       </div>
 
       {currentUser?.role === 'admin' && (
         <div className="fixed bottom-24 right-4 flex flex-col gap-3 z-50">
-          <button onClick={() => setShowDealerSettingsModal(true)} className="bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"><SettingsIcon /></button>
-          <button onClick={() => setShowBannerManagerModal(true)} className="bg-orange-500 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"><BannerIcon /></button>
-          <button onClick={() => setShowCustomerAdminModal(true)} className="bg-emerald-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"><UsersIcon /></button>
-          <button onClick={() => { setEditingProduct(null); setShowAdminModal(true); }} className="bg-[#2874f0] text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"><PlusIcon /></button>
+          <button onClick={() => setShowDealerSettingsModal(true)} className="bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><SettingsIcon /></button>
+          <button onClick={() => setShowBannerManagerModal(true)} className="bg-orange-500 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><BannerIcon /></button>
+          <button onClick={() => setShowCustomerAdminModal(true)} className="bg-emerald-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><UsersIcon /></button>
+          <button onClick={() => {setEditingProduct(null); setShowAdminModal(true)}} className="bg-[#2874f0] text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><PlusIcon /></button>
         </div>
       )}
 
-      {selectedProduct && <ProductDetailsModal product={selectedProduct} onClose={() => setSelectedProduct(null)} onContactWhatsApp={openWhatsApp} onContactCall={makeCall} />}
-      {showAdminModal && <AdminModal product={editingProduct} onClose={() => { setShowAdminModal(false); setEditingProduct(null); }} onSave={(p: Product) => {
-        if(editingProduct) setProducts(products.map(pr => pr.id === p.id ? p : pr));
-        else setProducts([{ ...p, id: Date.now().toString(), createdAt: Date.now() }, ...products]);
+      {selectedProduct && <ProductDetailsModal product={selectedProduct} onClose={() => setSelectedProduct(null)} onWhatsApp={openWhatsApp} onCall={makeCall} />}
+      {showAdminModal && <AdminModal product={editingProduct} onClose={() => setShowAdminModal(false)} onSave={(p: Product) => {
+        if(editingProduct) setProducts(products.map(item => item.id === p.id ? p : item));
+        else setProducts([{...p, id: Date.now().toString(), createdAt: Date.now()}, ...products]);
         setShowAdminModal(false);
       }} />}
-      {showDealerSettingsModal && <DealerSettingsModal dealer={currentUser} shopInfo={shopInfo} onClose={() => setShowDealerSettingsModal(false)} onSave={(u: User, s: ShopInfo) => {
-        setUsers(users.map(user => user.role === 'admin' ? u : user));
-        setShopInfo(s);
-        setCurrentUser(u);
-        setShowDealerSettingsModal(false);
-      }} />}
+      {showDealerSettingsModal && <DealerSettingsModal shopInfo={shopInfo} onClose={() => setShowDealerSettingsModal(false)} onSave={(s: ShopInfo) => {setShopInfo(s); setShowDealerSettingsModal(false)}} />}
+      {showBannerManagerModal && <BannerManagerModal banners={banners} onClose={() => setShowBannerManagerModal(false)} onSave={(b: Banner[]) => {setBanners(b); setShowBannerManagerModal(false)}} />}
       {showCustomerAdminModal && <CustomerAdminModal users={users.filter(u => u.role === 'customer')} onClose={() => setShowCustomerAdminModal(false)} onDeleteUser={(id: string) => setUsers(users.filter(u => u.id !== id))} />}
-      {showBannerManagerModal && <BannerManagerModal currentBanners={banners} onClose={() => setShowBannerManagerModal(false)} onSave={(b: Banner[]) => { setBanners(b); setShowBannerManagerModal(false); }} />}
     </div>
   );
 };
 
-const ProductDetailsModal = ({ product, onClose, onContactWhatsApp, onContactCall }: any) => (
+const ProductDetailsModal = ({ product, onClose, onWhatsApp, onCall }: any) => (
   <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div className="bg-white w-full max-w-lg rounded-t-[32px] sm:rounded-2xl overflow-hidden flex flex-col max-h-[90vh] shadow-2xl text-left">
-      <div className="p-5 border-b flex items-center bg-[#2874f0] text-white gap-3">
-        <button onClick={onClose} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center">
-          <BackIcon />
-        </button>
-        <h2 className="text-xs font-black uppercase tracking-[3px] flex-1 text-center">Product Information</h2>
+    <div className="bg-white w-full max-w-lg rounded-t-[32px] sm:rounded-3xl overflow-hidden text-left flex flex-col max-h-[95vh] shadow-2xl">
+      <div className="p-5 border-b flex justify-between items-center bg-[#2874f0] text-white">
+        <button onClick={onClose} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors"><BackIcon /></button>
+        <span className="font-black text-xs uppercase tracking-widest">Product Info</span>
         <div className="w-8"></div>
       </div>
       <div className="overflow-y-auto p-6 space-y-8 no-scrollbar">
-        <div className="flex justify-center bg-gray-50 rounded-2xl p-6 ring-1 ring-black/5">
-          <img src={product.image} className="max-h-64 object-contain drop-shadow-2xl" />
+        <div className="bg-gray-50 rounded-2xl p-6 flex justify-center h-64 ring-1 ring-black/5">
+          <img src={product.image} className="h-full object-contain drop-shadow-xl" alt="product" />
         </div>
         <div className="space-y-4">
-          <h2 className="text-xl font-black text-gray-900 leading-tight">{product.name}</h2>
-          <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-2xl font-black text-gray-900 leading-tight">{product.name}</h2>
+          <div className="flex flex-wrap gap-2 items-center">
             <span className="text-3xl font-black text-[#2874f0]">₹{product.price.toLocaleString()}</span>
-            <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full font-black text-[10px] uppercase border border-green-100">{product.condition}</span>
-            {product.specs.ram && <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full font-black text-[10px] uppercase border border-blue-100">{product.specs.ram} RAM</span>}
-            {product.specs.storage && <span className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full font-black text-[10px] uppercase border border-purple-100">{product.specs.storage} ROM</span>}
+            <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-[10px] font-black border border-green-100 uppercase">{product.condition}</span>
+            {product.specs.ram && <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black border border-blue-100 uppercase">{product.specs.ram} RAM</span>}
+            {product.specs.storage && <span className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black border border-purple-100 uppercase">{product.specs.storage} ROM</span>}
           </div>
-          <div className="p-5 bg-gray-50 rounded-2xl italic text-sm text-gray-600 border-l-4 border-[#2874f0] leading-relaxed shadow-inner">
-            {product.description}
+          <div className="bg-gray-50/80 p-5 rounded-2xl border-l-4 border-[#2874f0] shadow-inner">
+            <p className="text-sm text-gray-600 leading-relaxed italic">"{product.description}"</p>
           </div>
         </div>
       </div>
-      <div className="p-5 border-t bg-gray-50/50 flex gap-3">
-        <button onClick={() => onContactWhatsApp(undefined, product.name)} className="flex-1 border-2 border-gray-100 bg-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2"><MessageIcon /> WhatsApp</button>
-        <button onClick={() => onContactCall()} className="flex-1 bg-[#fb641b] text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl shadow-orange-500/20 flex items-center justify-center gap-2"><PhoneIcon /> Call Store</button>
+      <div className="p-5 border-t bg-white flex gap-3">
+        <button onClick={() => onWhatsApp(undefined, product.name)} className="flex-1 bg-[#25D366] text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-green-500/20 active:scale-95 transition-all"><MessageIcon /> WhatsApp</button>
+        <button onClick={() => onCall()} className="flex-1 bg-[#fb641b] text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-orange-500/20 active:scale-95 transition-all"><PhoneIcon /> Call Now</button>
       </div>
     </div>
   </div>
 );
 
 const AdminModal = ({ product, onClose, onSave }: any) => {
-  const [formData, setFormData] = useState<Product>(product || { id: '', name: '', price: 0, condition: 'Good', category: 'Mobile', description: '', specs: { ram: '', storage: '' }, image: 'https://images.unsplash.com/photo-1556656793-062ff987b50c?q=80&w=400', createdAt: Date.now() });
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [formData, setFormData] = useState<Product>(product || { id: '', name: '', price: 0, condition: 'Good', category: 'Mobile', description: '', specs: { ram: '', storage: '' }, image: '', createdAt: Date.now() });
+  const [loading, setLoading] = useState(false);
 
-  const handleAiDescription = async () => {
-    if (!formData.name) return alert("Pehle naam likhein.");
-    setIsGenerating(true);
+  const handleAi = async () => {
+    if(!formData.name) return alert('Pehle Product Name likhein!');
+    setLoading(true);
     const desc = await generateProductDescription(formData.name, formData.condition, formData.category);
-    setFormData({ ...formData, description: desc });
-    setIsGenerating(false);
+    setFormData({...formData, description: desc});
+    setLoading(false);
+  };
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if(f) {
+      const r = new FileReader();
+      r.onloadend = () => setFormData({...formData, image: r.result as string});
+      r.readAsDataURL(f);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
-      <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="bg-white w-full max-w-md rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto text-left">
-        <h2 className="font-black uppercase text-xs tracking-widest text-gray-400 border-b pb-4 flex justify-between items-center">
-          {product ? 'Update Inventory' : 'Add New Item'}
-          <button type="button" onClick={onClose} className="text-gray-400 p-2">✕</button>
-        </h2>
-        <div className="space-y-4">
-          <div className="flex gap-4 items-center bg-gray-50 p-4 rounded-2xl">
-            <div className="w-20 h-20 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center overflow-hidden relative bg-white">
-                {formData.image ? <img src={formData.image} className="w-full h-full object-contain" /> : <PlusIcon />}
-                <input type="file" accept="image/*" onChange={e => {
-                  const f = e.target.files?.[0];
-                  if(f) {
-                    const r = new FileReader();
-                    r.onloadend = () => setFormData({...formData, image: r.result as string});
-                    r.readAsDataURL(f);
-                  }
-                }} className="absolute inset-0 opacity-0 cursor-pointer" />
-            </div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase leading-snug">Tap to upload<br/>product photo</p>
-          </div>
-          <input type="text" required placeholder="Product Name (e.g. iPhone 14)" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-          <div className="flex gap-4">
-            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Price</label><input type="number" required className="w-full border-b-2 border-gray-100 py-2 text-sm outline-none" value={formData.price || ''} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} /></div>
-            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Category</label><select className="w-full border-b-2 border-gray-100 py-2 text-sm outline-none bg-transparent" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}><option>Mobile</option><option>Accessories</option></select></div>
-          </div>
-          
-          {formData.category === 'Mobile' && (
-            <div className="flex gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-               <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">RAM</label><input type="text" placeholder="e.g. 8GB" className="w-full border-b-2 border-gray-100 py-2 text-sm outline-none" value={formData.specs.ram || ''} onChange={e => setFormData({...formData, specs: {...formData.specs, ram: e.target.value}})} /></div>
-               <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Storage (ROM)</label><input type="text" placeholder="e.g. 256GB" className="w-full border-b-2 border-gray-100 py-2 text-sm outline-none" value={formData.specs.storage || ''} onChange={e => setFormData({...formData, specs: {...formData.specs, storage: e.target.value}})} /></div>
-            </div>
-          )}
-
-          <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Condition</label><select className="w-full border-b-2 border-gray-100 py-2 text-sm outline-none bg-transparent" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value as any})}><option>Like New</option><option>Good</option><option>Average</option></select></div>
-
-          <div className="relative">
-            <div className="flex justify-between mb-2">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">About Product</label>
-              <button type="button" onClick={handleAiDescription} disabled={isGenerating} className="text-[#2874f0] text-[10px] font-bold flex items-center gap-1"><SparklesIcon /> {isGenerating ? 'AI Writing...' : 'AI Auto-Write'}</button>
-            </div>
-            <textarea className="w-full border-2 border-gray-50 rounded-xl p-3 text-sm outline-none h-24" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-          </div>
+      <form onSubmit={e => {e.preventDefault(); onSave(formData)}} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-5 max-h-[90vh] overflow-y-auto text-left shadow-2xl">
+        <div className="flex justify-between border-b pb-4 items-center">
+          <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Inventory Editor</h2>
+          <button type="button" onClick={onClose} className="p-2 text-gray-400">✕</button>
         </div>
-        <button type="submit" className="w-full bg-[#2874f0] text-white py-4 rounded-xl font-bold uppercase shadow-xl shadow-blue-500/20">Save to Inventory</button>
+        <div className="flex gap-4 items-center bg-gray-50 p-4 rounded-2xl">
+           <div className="w-20 h-20 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center relative overflow-hidden bg-white shadow-inner">
+             {formData.image ? <img src={formData.image} className="w-full h-full object-contain" alt="preview" /> : <PlusIcon />}
+             <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleUpload} />
+           </div>
+           <div>
+             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Product Photo</p>
+             <p className="text-[9px] text-gray-300">Tap to upload / change</p>
+           </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Product Name</label>
+          <input type="text" placeholder="e.g. iPhone 15 Pro" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none font-bold focus:border-[#2874f0] transition-colors" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+        </div>
+        <div className="flex gap-4">
+           <div className="flex-1 space-y-1">
+             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Price</label>
+             <input type="number" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm font-bold focus:border-[#2874f0]" value={formData.price || ''} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
+           </div>
+           <div className="flex-1 space-y-1">
+             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Category</label>
+             <select className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none bg-transparent font-bold focus:border-[#2874f0]" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
+               <option>Mobile</option>
+               <option>Accessories</option>
+             </select>
+           </div>
+        </div>
+        {formData.category === 'Mobile' && (
+          <div className="flex gap-4 animate-in fade-in duration-300">
+             <div className="flex-1 space-y-1">
+               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">RAM</label>
+               <input type="text" placeholder="8GB" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm font-bold focus:border-[#2874f0]" value={formData.specs.ram} onChange={e => setFormData({...formData, specs: {...formData.specs, ram: e.target.value}})} />
+             </div>
+             <div className="flex-1 space-y-1">
+               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Storage</label>
+               <input type="text" placeholder="256GB" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm font-bold focus:border-[#2874f0]" value={formData.specs.storage} onChange={e => setFormData({...formData, specs: {...formData.specs, storage: e.target.value}})} />
+             </div>
+          </div>
+        )}
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Condition</label>
+          <select className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none bg-transparent font-bold focus:border-[#2874f0]" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value as any})}>
+            <option>Like New</option>
+            <option>Good</option>
+            <option>Average</option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Description</label>
+            <button type="button" onClick={handleAi} className="text-[10px] font-black text-blue-600 flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors">
+              <SparklesIcon /> {loading ? 'AI Writing...' : 'AI Auto-Write'}
+            </button>
+          </div>
+          <textarea className="w-full border-2 border-gray-50 rounded-2xl p-4 text-sm h-28 outline-none focus:border-[#2874f0] transition-colors shadow-inner" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+        </div>
+        <button type="submit" className="w-full bg-[#2874f0] text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all mt-4">Save to Shop</button>
       </form>
     </div>
   );
 };
 
-const DealerSettingsModal = ({ shopInfo, onClose, onSave, dealer }: any) => {
+const DealerSettingsModal = ({ shopInfo, onClose, onSave }: any) => {
   const [s, setS] = useState({...shopInfo});
-  const [d, setD] = useState({...dealer});
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl p-6 space-y-5 text-left max-h-[90vh] overflow-y-auto">
-        <h2 className="font-black uppercase text-xs tracking-widest text-gray-400 border-b pb-4 flex justify-between items-center">Shop Dashboard <button onClick={onClose} className="p-2">✕</button></h2>
-        <div className="space-y-4">
-          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Shop Name</label><input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none" value={s.name} onChange={e => setS({...s, name: e.target.value})} /></div>
-          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Full Address</label><textarea className="w-full border-2 border-gray-50 rounded-xl p-3 text-sm outline-none h-20" value={s.address} onChange={e => setS({...s, address: e.target.value})} /></div>
-          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Google Maps URL</label><input type="text" placeholder="https://www.google.com/maps/..." className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none" value={s.googleMapUrl} onChange={e => setS({...s, googleMapUrl: e.target.value})} /></div>
-          <div className="flex gap-4">
-            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400 uppercase">WhatsApp (With Country Code)</label><input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none" value={s.whatsapp} onChange={e => setS({...s, whatsapp: e.target.value})} /></div>
-          </div>
-          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Calling Number</label><input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none" value={s.phone} onChange={e => setS({...s, phone: e.target.value})} /></div>
-          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Change Admin Password</label><input type="password" placeholder="New Password" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none" value={d.password} onChange={e => setD({...d, password: e.target.value})} /></div>
+      <div className="bg-white w-full max-w-md rounded-3xl p-6 space-y-5 text-left shadow-2xl">
+        <div className="flex justify-between border-b pb-4 items-center">
+          <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Store Settings</h2>
+          <button onClick={onClose} className="p-2 text-gray-400">✕</button>
         </div>
-        <button onClick={() => onSave(d, s)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold uppercase shadow-xl shadow-black/20">Update Dashboard</button>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Store Name</label>
+            <input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none font-bold focus:border-[#2874f0]" value={s.name} onChange={e => setS({...s, name: e.target.value})} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Physical Address</label>
+            <textarea className="w-full border-2 border-gray-50 rounded-2xl p-4 text-sm h-20 outline-none focus:border-[#2874f0] shadow-inner" value={s.address} onChange={e => setS({...s, address: e.target.value})} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Maps Link</label>
+            <input type="text" placeholder="https://..." className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none focus:border-[#2874f0]" value={s.googleMapUrl} onChange={e => setS({...s, googleMapUrl: e.target.value})} />
+          </div>
+          <div className="flex gap-4">
+             <div className="flex-1 space-y-1">
+               <label className="text-[10px] font-black text-gray-400 uppercase ml-1">WhatsApp</label>
+               <input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none font-bold focus:border-[#2874f0]" value={s.whatsapp} onChange={e => setS({...s, whatsapp: e.target.value})} />
+             </div>
+             <div className="flex-1 space-y-1">
+               <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Call Number</label>
+               <input type="text" className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none font-bold focus:border-[#2874f0]" value={s.phone} onChange={e => setS({...s, phone: e.target.value})} />
+             </div>
+          </div>
+        </div>
+        <button onClick={() => onSave(s)} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest active:scale-95 transition-all mt-4">Apply Dashboard Changes</button>
+      </div>
+    </div>
+  );
+};
+
+const BannerManagerModal = ({ banners, onClose, onSave }: any) => {
+  const [b, setB] = useState<Banner[]>(banners);
+  const [form, setForm] = useState<Banner>({ id: '', title: '', subtitle: '', bg: 'bg-gradient-to-r from-blue-700 to-indigo-800', image: '', tag: 'OFFER' });
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const gradients = [
+    'bg-gradient-to-r from-blue-700 to-indigo-800',
+    'bg-gradient-to-r from-orange-500 to-red-600',
+    'bg-gradient-to-r from-emerald-600 to-teal-700',
+    'bg-gradient-to-r from-purple-600 to-blue-500',
+    'bg-gradient-to-r from-pink-600 to-orange-500',
+    'bg-black'
+  ];
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if(f) {
+      const r = new FileReader();
+      r.onloadend = () => setForm({...form, image: r.result as string});
+      r.readAsDataURL(f);
+    }
+  };
+
+  const handleSaveBanner = () => {
+    if(!form.image || !form.title) return alert('Photo aur Title zaroori hai!');
+    if (editingId) {
+      setB(b.map(item => item.id === editingId ? { ...form, id: editingId } : item));
+    } else {
+      setB([{ ...form, id: Date.now().toString() }, ...b]);
+    }
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setForm({ id: '', title: '', subtitle: '', bg: 'bg-gradient-to-r from-blue-700 to-indigo-800', image: '', tag: 'OFFER' });
+    setIsAdding(false);
+    setEditingId(null);
+  };
+
+  const startEdit = (banner: Banner) => {
+    setForm(banner);
+    setEditingId(banner.id);
+    setIsAdding(true);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-2xl rounded-3xl p-6 flex flex-col max-h-[95vh] text-left shadow-2xl overflow-hidden">
+        <div className="flex justify-between border-b pb-4 items-center shrink-0">
+          <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Slider Banners Dashboard</h2>
+          <button onClick={onClose} className="p-2 text-gray-400">✕</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 py-4 no-scrollbar space-y-6">
+          {!isAdding ? (
+            <button 
+              onClick={() => setIsAdding(true)} 
+              className="w-full border-2 border-dashed border-gray-200 py-6 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-gray-50 transition-colors group"
+            >
+              <div className="bg-[#2874f0] text-white p-2 rounded-full group-hover:scale-110 transition-transform"><PlusIcon /></div>
+              <p className="text-xs font-black uppercase text-gray-400 tracking-widest">Add New Banner Ad</p>
+            </button>
+          ) : (
+            <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-5 animate-in slide-in-from-top duration-300">
+               <div className="flex justify-between items-center">
+                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                   {editingId ? 'Edit Banner Details' : 'Banner Configurator'}
+                 </p>
+                 <button onClick={resetForm} className="text-[10px] font-bold text-red-400 uppercase">Cancel</button>
+               </div>
+
+               <div className="space-y-2">
+                 <p className="text-[9px] font-bold text-gray-400 uppercase ml-1">Live Preview</p>
+                 <div className={`relative h-28 rounded-2xl overflow-hidden shadow-lg ${form.bg} flex items-center p-4 text-white ring-2 ring-white`}>
+                    <div className="flex-1 z-10">
+                      <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded font-bold uppercase mb-1 inline-block">{form.tag || 'TAG'}</span>
+                      <h2 className="text-sm font-bold truncate">{form.title || 'New Heading'}</h2>
+                      <p className="text-[10px] opacity-80 truncate">{form.subtitle || 'Short subtext goes here...'}</p>
+                    </div>
+                    <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-40">
+                      {form.image && <img src={form.image} className="h-full w-full object-cover" alt="banner preview" />}
+                    </div>
+                 </div>
+               </div>
+
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Tag Label (Offer Type)</label>
+                    <input type="text" placeholder="e.g. OFFER, FLAT 50%" className="w-full bg-white border rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-[#2874f0]" value={form.tag} onChange={e => setForm({...form, tag: e.target.value.toUpperCase()})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Banner Background</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {gradients.map(g => (
+                        <button key={g} onClick={() => setForm({...form, bg: g})} className={`w-6 h-6 rounded-full border-2 ${g} ${form.bg === g ? 'ring-2 ring-offset-1 ring-[#2874f0]' : 'border-white shadow-sm'}`}></button>
+                      ))}
+                    </div>
+                  </div>
+               </div>
+
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Main Heading (Offer Name)</label>
+                 <input type="text" placeholder="e.g. Buy iPhone 15 at Lowest Price" className="w-full bg-white border rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-[#2874f0]" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+               </div>
+
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Description (Offer Subtext)</label>
+                 <input type="text" placeholder="e.g. Limited time offer till Sunday" className="w-full bg-white border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#2874f0]" value={form.subtitle} onChange={e => setForm({...form, subtitle: e.target.value})} />
+               </div>
+
+               <div className="flex gap-4 items-end">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Photo (Upload Art/Product)</label>
+                    <div className="relative border-2 border-dashed border-gray-300 rounded-xl bg-white p-4 flex items-center justify-center cursor-pointer hover:bg-gray-50">
+                       <p className="text-[10px] text-gray-400 font-bold uppercase">{form.image ? 'File Selected ✓' : 'Click to Upload'}</p>
+                       <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleUpload} />
+                    </div>
+                  </div>
+                  <button onClick={handleSaveBanner} className="bg-blue-600 text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase shadow-xl shadow-blue-500/20 active:scale-90 transition-all">
+                    {editingId ? 'Update Banner' : 'Add Banner'}
+                  </button>
+               </div>
+            </div>
+          )}
+
+          <div className="space-y-4">
+             <div className="flex justify-between items-center px-1">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Store Banners</p>
+                <p className="text-[9px] font-bold text-gray-300 uppercase">{b.length} Banners</p>
+             </div>
+             <div className="grid grid-cols-1 gap-3">
+               {b.map((item, i) => (
+                <div key={item.id} className="p-3 bg-white border rounded-2xl flex items-center gap-4 group hover:shadow-md transition-all">
+                  <div className={`w-16 h-10 rounded-lg shrink-0 overflow-hidden ${item.bg} flex items-center justify-center`}>
+                    {item.image && <img src={item.image} className="w-full h-full object-cover opacity-60" alt="banner art" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black truncate text-gray-800 leading-tight uppercase">{item.title}</p>
+                    <p className="text-[9px] text-gray-400 font-medium truncate">{item.subtitle}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => startEdit(item)} className="text-blue-500 p-2 hover:bg-blue-50 rounded-lg transition-colors"><EditIcon /></button>
+                    <button onClick={() => { if(confirm('Delete banner?')) setB(b.filter((_, idx) => idx !== i))}} className="text-red-400 p-2 hover:bg-red-50 rounded-lg transition-colors"><TrashIcon /></button>
+                  </div>
+                </div>
+               ))}
+               {b.length === 0 && <p className="text-center py-10 text-xs text-gray-300 italic">No banners active in store slider.</p>}
+             </div>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t shrink-0">
+          <button onClick={() => onSave(b)} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Apply Dashboard Slider Updates</button>
+        </div>
       </div>
     </div>
   );
@@ -510,127 +702,28 @@ const CustomerAdminModal = ({ users, onClose, onDeleteUser }: any) => {
   const formatDate = (ts?: number) => ts ? new Date(ts).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Unknown';
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl p-6 flex flex-col max-h-[80vh] text-left">
-        <h2 className="font-black uppercase text-xs tracking-widest text-gray-400 border-b pb-4 flex justify-between items-center">Customer Database <button onClick={onClose} className="p-2">✕</button></h2>
-        <div className="overflow-y-auto flex-1 py-4 space-y-3 no-scrollbar">
+      <div className="bg-white w-full max-w-md rounded-3xl p-6 flex flex-col max-h-[80vh] text-left shadow-2xl">
+        <div className="flex justify-between border-b pb-4 items-center">
+          <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Customer Database</h2>
+          <button onClick={onClose} className="p-2 text-gray-400">✕</button>
+        </div>
+        <div className="overflow-y-auto flex-1 py-4 space-y-3 no-scrollbar pr-1">
           {users.map((u: any) => (
-            <div key={u.id} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center ring-1 ring-black/5">
+            <div key={u.id} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center border border-gray-100 hover:border-blue-200 transition-colors">
               <div>
-                <p className="text-sm font-bold text-gray-800">{u.name}</p>
-                <p className="text-xs text-[#2874f0] font-bold">{u.phoneNumber}</p>
-                <p className="text-[9px] text-gray-400 font-mono mt-1">Join: {formatDate(u.createdAt)}</p>
+                <p className="text-sm font-black text-gray-800">{u.name}</p>
+                <p className="text-xs text-[#2874f0] font-black">{u.phoneNumber}</p>
+                <div className="flex items-center gap-1 mt-1 text-[9px] text-gray-400 font-mono">
+                  <span className="w-1 h-1 bg-green-500 rounded-full"></span>
+                  Member since: {formatDate(u.createdAt)}
+                </div>
               </div>
-              <button onClick={() => { if(confirm('Delete user?')) onDeleteUser(u.id); }} className="text-red-500 p-2 hover:bg-red-50 rounded-lg"><TrashIcon /></button>
+              <button onClick={() => { if(confirm('Delete user permanently?')) onDeleteUser(u.id); }} className="text-red-500 p-2.5 hover:bg-red-100 rounded-xl transition-colors"><TrashIcon /></button>
             </div>
           ))}
-          {users.length === 0 && <p className="text-center py-10 text-xs text-gray-400 italic">No customers yet.</p>}
+          {users.length === 0 && <p className="text-center py-14 text-xs text-gray-400 italic">Database is empty.</p>}
         </div>
-        <button onClick={onClose} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold uppercase">Back to Dashboard</button>
-      </div>
-    </div>
-  );
-};
-
-const BannerManagerModal = ({ currentBanners, onClose, onSave }: any) => {
-  const [b, setB] = useState<Banner[]>(currentBanners);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [bannerForm, setBannerForm] = useState<Banner>({ id: '', title: '', subtitle: '', bg: 'bg-gradient-to-r from-blue-700 to-indigo-800', image: '', tag: 'OFFER' });
-
-  const handleEdit = (index: number) => {
-    setEditingIndex(index);
-    setBannerForm(b[index]);
-  };
-
-  const handleSaveForm = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!bannerForm.image) return alert("Kripya banner ke liye photo upload karein.");
-    const newList = [...b];
-    if (editingIndex !== null) {
-      newList[editingIndex] = bannerForm;
-    } else {
-      newList.push({ ...bannerForm, id: Date.now().toString() });
-    }
-    setB(newList);
-    setEditingIndex(null);
-    setBannerForm({ id: '', title: '', subtitle: '', bg: 'bg-gradient-to-r from-blue-700 to-indigo-800', image: '', tag: 'OFFER' });
-  };
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      const r = new FileReader();
-      r.onloadend = () => setBannerForm({...bannerForm, image: r.result as string});
-      r.readAsDataURL(f);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-xl rounded-2xl p-6 space-y-5 text-left flex flex-col max-h-[90vh]">
-        <h2 className="font-black uppercase text-xs tracking-widest text-gray-400 border-b pb-4 flex justify-between items-center">Banner Ads Manager <button onClick={onClose} className="p-2">✕</button></h2>
-        
-        <form onSubmit={handleSaveForm} className="bg-gray-50 p-5 rounded-2xl space-y-4 border border-gray-100">
-           <p className="text-[10px] font-bold text-[#2874f0] uppercase tracking-widest">{editingIndex !== null ? 'Edit Banner' : 'Add New Banner'}</p>
-           
-           <div className="flex gap-4 items-start">
-             <div className="w-24 h-16 bg-white border-2 border-dashed border-gray-200 rounded-lg flex items-center justify-center overflow-hidden relative shrink-0">
-               {bannerForm.image ? (
-                 <img src={bannerForm.image} className="w-full h-full object-cover" />
-               ) : (
-                 <PlusIcon />
-               )}
-               <input type="file" accept="image/*" onChange={handlePhotoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-             </div>
-             <div className="flex-1 grid grid-cols-1 gap-2">
-                <input type="text" placeholder="Offer Title (e.g. Festival Dhamaka)" required className="w-full border-b text-xs py-1.5 outline-none bg-transparent font-bold" value={bannerForm.title} onChange={e => setBannerForm({...bannerForm, title: e.target.value})} />
-                <input type="text" placeholder="Short Subtitle" required className="w-full border-b text-[10px] py-1 outline-none bg-transparent" value={bannerForm.subtitle} onChange={e => setBannerForm({...bannerForm, subtitle: e.target.value})} />
-             </div>
-           </div>
-
-           <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[9px] font-bold text-gray-400 uppercase">Banner Tag</label>
-                <input type="text" placeholder="e.g. FLAT 50% OFF" className="w-full border-b text-xs py-1.5 outline-none bg-transparent" value={bannerForm.tag} onChange={e => setBannerForm({...bannerForm, tag: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-[9px] font-bold text-gray-400 uppercase">Color Theme</label>
-                <select className="w-full border-b text-xs py-1.5 outline-none bg-transparent" value={bannerForm.bg} onChange={e => setBannerForm({...bannerForm, bg: e.target.value})}>
-                  <option value="bg-gradient-to-r from-blue-700 to-indigo-800">Blue Gradient</option>
-                  <option value="bg-gradient-to-r from-orange-500 to-red-600">Orange Gradient</option>
-                  <option value="bg-gradient-to-r from-emerald-600 to-teal-700">Green Gradient</option>
-                  <option value="bg-gray-900">Solid Black</option>
-                  <option value="bg-purple-600">Solid Purple</option>
-                </select>
-              </div>
-           </div>
-
-           <div className="flex gap-2 pt-2">
-              <button type="submit" className="bg-[#2874f0] text-white px-5 py-2.5 rounded-xl text-[10px] font-bold uppercase shadow-lg shadow-blue-500/20">{editingIndex !== null ? 'Update Banner' : 'Add to Slider'}</button>
-              {editingIndex !== null && <button type="button" onClick={() => { setEditingIndex(null); setBannerForm({ id: '', title: '', subtitle: '', bg: 'bg-gradient-to-r from-blue-700 to-indigo-800', image: '', tag: 'OFFER' }); }} className="text-gray-400 text-[10px] font-bold uppercase p-2">Cancel</button>}
-           </div>
-        </form>
-
-        <div className="space-y-2 overflow-y-auto flex-1 no-scrollbar pt-2">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Active Slider Banners</p>
-          {b.map((banner, i) => (
-            <div key={banner.id} className="p-3 bg-white border border-gray-100 rounded-xl flex items-center gap-3 hover:ring-1 ring-[#2874f0]/20 transition-all group">
-              <div className={`w-14 h-10 rounded-lg ${banner.bg} shrink-0 overflow-hidden`}>
-                <img src={banner.image} className="w-full h-full object-cover opacity-60" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-black truncate">{banner.title}</p>
-                <p className="text-[9px] text-gray-400 truncate uppercase tracking-tighter">{banner.tag}</p>
-              </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleEdit(i)} className="p-2 text-blue-600 bg-blue-50 rounded-lg"><EditIcon /></button>
-                <button onClick={() => { if(confirm('Delete banner?')) setB(b.filter((_, idx) => idx !== i)); }} className="p-2 text-red-500 bg-red-50 rounded-lg"><TrashIcon /></button>
-              </div>
-            </div>
-          ))}
-          {b.length === 0 && <p className="text-center py-6 text-[10px] text-gray-400 italic">No banners active. Upload your first offer banner above.</p>}
-        </div>
-        
-        <button onClick={() => onSave(b)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold uppercase mt-2 shadow-2xl">Apply Slider Changes</button>
+        <button onClick={onClose} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest mt-2 active:scale-95 transition-all">Back to Dashboard</button>
       </div>
     </div>
   );
