@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Product, Category, Condition, Banner, User, UserRole, ShopInfo } from './types';
 import { INITIAL_PRODUCTS, SHOP_DETAILS, INITIAL_BANNERS } from './constants';
-import { PhoneIcon, MessageIcon, LocationIcon, PlusIcon, EditIcon, TrashIcon, SparklesIcon, UsersIcon, SettingsIcon, ShareIcon } from './components/Icons';
+import { PhoneIcon, MessageIcon, LocationIcon, PlusIcon, EditIcon, TrashIcon, SparklesIcon, UsersIcon, SettingsIcon, ShareIcon, BackIcon } from './components/Icons';
 import { generateProductDescription } from './services/geminiService';
 
 const App: React.FC = () => {
@@ -44,7 +44,6 @@ const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<Category | 'All'>('All');
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [showBannerAdminModal, setShowBannerAdminModal] = useState(false);
   const [showCustomerAdminModal, setShowCustomerAdminModal] = useState(false);
   const [showDealerSettingsModal, setShowDealerSettingsModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -297,6 +296,10 @@ const App: React.FC = () => {
                   <span className="bg-green-600 text-white text-[10px] font-bold px-1 rounded-sm">4.5 ★</span>
                   <span className="text-[10px] text-gray-400 font-bold uppercase">{product.condition}</span>
                 </div>
+                <div className="flex items-center gap-1 mb-1">
+                   {product.specs.ram && <span className="text-[9px] bg-blue-100 text-blue-600 px-1 rounded font-bold">{product.specs.ram} RAM</span>}
+                   {product.specs.storage && <span className="text-[9px] bg-purple-100 text-purple-600 px-1 rounded font-bold">{product.specs.storage} ROM</span>}
+                </div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-lg font-bold">₹{product.price.toLocaleString()}</span>
                   <span className="text-xs text-gray-400 line-through">₹{(product.price * 1.5).toLocaleString()}</span>
@@ -345,47 +348,149 @@ const App: React.FC = () => {
   );
 };
 
-// Re-using simplified versions of sub-components to keep code clean
-const ProductDetailsModal = ({ product, shopInfo, onClose, onContactWhatsApp, onContactCall }: any) => (
+const ProductDetailsModal = ({ product, onClose, onContactWhatsApp, onContactCall }: any) => (
   <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div className="bg-white w-full max-w-lg rounded-t-xl sm:rounded-sm overflow-hidden flex flex-col max-h-[90vh]">
-      <div className="p-4 border-b flex justify-between items-center bg-[#2874f0] text-white">
-        <h2 className="text-xs font-bold uppercase tracking-widest">Product Info</h2>
-        <button onClick={onClose} className="p-2">✕</button>
+      <div className="p-4 border-b flex items-center bg-[#2874f0] text-white gap-2">
+        <button onClick={onClose} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center" aria-label="Go back">
+          <BackIcon />
+        </button>
+        <h2 className="text-sm font-bold uppercase tracking-widest flex-1">Product Details</h2>
       </div>
       <div className="overflow-y-auto p-6 space-y-6">
-        <div className="flex justify-center"><img src={product.image} className="max-h-60 object-contain" /></div>
+        <div className="flex justify-center bg-gray-50 rounded p-4">
+          <img src={product.image} className="max-h-64 object-contain" />
+        </div>
         <div>
           <h2 className="text-lg font-bold leading-tight">{product.name}</h2>
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex flex-wrap items-center gap-3 mt-2">
             <span className="text-2xl font-black">₹{product.price.toLocaleString()}</span>
-            <span className="text-green-600 font-bold text-sm">{product.condition} Condition</span>
+            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold text-[10px] uppercase">{product.condition} Condition</span>
+            {product.specs.ram && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold text-[10px] uppercase">{product.specs.ram} RAM</span>}
+            {product.specs.storage && <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold text-[10px] uppercase">{product.specs.storage} ROM</span>}
           </div>
         </div>
-        <div className="p-4 bg-gray-50 rounded-sm italic text-sm text-gray-600 border-l-4 border-[#2874f0]">{product.description}</div>
+        <div className="p-4 bg-gray-50 rounded-sm italic text-sm text-gray-600 border-l-4 border-[#2874f0] whitespace-pre-wrap">{product.description}</div>
       </div>
       <div className="p-4 border-t flex gap-3">
-        <button onClick={() => onContactWhatsApp(undefined, product.name)} className="flex-1 border py-3 rounded-sm font-bold text-xs uppercase">WhatsApp</button>
-        <button onClick={() => onContactCall()} className="flex-1 bg-[#fb641b] text-white py-3 rounded-sm font-bold text-xs uppercase shadow-md">Call Store</button>
+        <button onClick={() => onContactWhatsApp(undefined, product.name)} className="flex-1 border py-3 rounded-sm font-bold text-xs uppercase flex items-center justify-center gap-2"><MessageIcon /> WhatsApp</button>
+        <button onClick={() => onContactCall()} className="flex-1 bg-[#fb641b] text-white py-3 rounded-sm font-bold text-xs uppercase shadow-md flex items-center justify-center gap-2"><PhoneIcon /> Call Store</button>
       </div>
     </div>
   </div>
 );
 
 const AdminModal = ({ product, onClose, onSave }: any) => {
-  const [formData, setFormData] = useState(product || { name: '', price: 0, condition: 'Good', category: 'Mobile', description: '', image: 'https://picsum.photos/400/300' });
+  const [formData, setFormData] = useState<Product>(product || { 
+    id: '', 
+    name: '', 
+    price: 0, 
+    condition: 'Good', 
+    category: 'Mobile', 
+    description: '', 
+    specs: { ram: '', storage: '' },
+    image: 'https://images.unsplash.com/photo-1556656793-062ff987b50c?q=80&w=400',
+    createdAt: Date.now() 
+  });
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, image: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAiDescription = async () => {
+    if (!formData.name) {
+      alert("Please enter product name first");
+      return;
+    }
+    setIsGenerating(true);
+    const desc = await generateProductDescription(formData.name, formData.condition, formData.category);
+    setFormData({ ...formData, description: desc });
+    setIsGenerating(false);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
-      <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="bg-white w-full max-w-md rounded-sm p-6 space-y-4">
-        <h2 className="font-bold uppercase text-sm border-b pb-2">Listing Manager</h2>
-        <input type="text" required placeholder="Product Name" className="w-full border-b py-2 text-sm outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-        <input type="number" required placeholder="Price" className="w-full border-b py-2 text-sm outline-none" value={formData.price} onChange={e => setFormData({...formData, price: parseInt(e.target.value)})} />
-        <select className="w-full border-b py-2 text-sm outline-none bg-transparent" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value})}>
-          <option>Like New</option><option>Good</option><option>Average</option>
-        </select>
-        <textarea placeholder="Description..." className="w-full border p-2 text-sm rounded outline-none h-20" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-        <div className="flex gap-2">
-          <button type="submit" className="flex-1 bg-green-600 text-white py-3 font-bold text-xs uppercase rounded shadow">Save</button>
+      <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="bg-white w-full max-w-md rounded-sm p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <h2 className="font-bold uppercase text-sm border-b pb-2 flex justify-between items-center">
+          {product ? 'Edit Product' : 'Add New Product'}
+          <button type="button" onClick={onClose} className="text-gray-400">✕</button>
+        </h2>
+
+        <div className="flex gap-4">
+            <div className="w-24 h-24 border-2 border-dashed border-gray-200 rounded flex flex-col items-center justify-center overflow-hidden relative group">
+                {formData.image ? (
+                    <img src={formData.image} className="w-full h-full object-contain" />
+                ) : (
+                    <PlusIcon />
+                )}
+                <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+            </div>
+            <div className="flex-1 space-y-2">
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Product Photo</label>
+                <p className="text-[10px] text-gray-500">Tap to upload from gallery</p>
+            </div>
+        </div>
+
+        <div className="space-y-3">
+          <input type="text" required placeholder="Product Name (e.g. iPhone 13)" className="w-full border-b py-2 text-sm outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+          
+          <div className="flex gap-3">
+            <div className="flex-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Price (₹)</label>
+                <input type="number" required placeholder="Price" className="w-full border-b py-2 text-sm outline-none" value={formData.price || ''} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
+            </div>
+            <div className="flex-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
+                <select className="w-full border-b py-2 text-sm outline-none bg-transparent" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as Category})}>
+                    <option value="Mobile">Mobile</option>
+                    <option value="Accessories">Accessories</option>
+                </select>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Condition</label>
+                <select className="w-full border-b py-2 text-sm outline-none bg-transparent" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value as Condition})}>
+                    <option>Like New</option><option>Good</option><option>Average</option>
+                </select>
+            </div>
+          </div>
+
+          {formData.category === 'Mobile' && (
+            <div className="flex gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">RAM</label>
+                    <input type="text" placeholder="e.g. 6GB" className="w-full border-b py-2 text-sm outline-none" value={formData.specs.ram} onChange={e => setFormData({...formData, specs: {...formData.specs, ram: e.target.value}})} />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">ROM (Storage)</label>
+                    <input type="text" placeholder="e.g. 128GB" className="w-full border-b py-2 text-sm outline-none" value={formData.specs.storage} onChange={e => setFormData({...formData, specs: {...formData.specs, storage: e.target.value}})} />
+                </div>
+            </div>
+          )}
+
+          <div className="relative">
+            <label className="text-[10px] font-bold text-gray-400 uppercase flex justify-between">
+                Description
+                <button type="button" onClick={handleAiDescription} disabled={isGenerating} className="text-[#2874f0] flex items-center gap-1 hover:underline">
+                    <SparklesIcon /> {isGenerating ? 'Thinking...' : 'AI Auto-Write'}
+                </button>
+            </label>
+            <textarea placeholder="Tell more about the product..." className="w-full border p-2 mt-1 text-sm rounded outline-none h-24" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <button type="submit" className="flex-1 bg-green-600 text-white py-3 font-bold text-xs uppercase rounded shadow-md hover:bg-green-700">Save Product</button>
           <button type="button" onClick={onClose} className="flex-1 bg-gray-100 text-gray-600 py-3 font-bold text-xs uppercase rounded">Cancel</button>
         </div>
       </form>
@@ -399,12 +504,36 @@ const DealerSettingsModal = ({ dealer, shopInfo, onClose, onSave }: any) => {
   return (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md rounded-sm p-6 overflow-y-auto max-h-[90vh] space-y-4">
-        <h2 className="font-bold uppercase text-sm border-b pb-2">Shop Settings</h2>
-        <input type="text" placeholder="Shop Name" className="w-full border-b py-2 text-sm outline-none" value={sData.name} onChange={e => setSData({...sData, name: e.target.value})} />
-        <textarea placeholder="Shop Address" className="w-full border p-2 text-sm rounded outline-none h-20" value={sData.address} onChange={e => setSData({...sData, address: e.target.value})} />
-        <input type="text" placeholder="WhatsApp Number" className="w-full border-b py-2 text-sm outline-none" value={sData.whatsapp} onChange={e => setSData({...sData, whatsapp: e.target.value})} />
-        <div className="flex gap-2">
-          <button onClick={() => onSave(dData, sData)} className="flex-1 bg-orange-600 text-white py-3 font-bold text-xs uppercase rounded">Update All</button>
+        <h2 className="font-bold uppercase text-sm border-b pb-2 flex justify-between">
+          Shop Settings
+          <button onClick={onClose}>✕</button>
+        </h2>
+        <div className="space-y-3">
+            <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Shop Name</label>
+                <input type="text" placeholder="Shop Name" className="w-full border-b py-2 text-sm outline-none" value={sData.name} onChange={e => setSData({...sData, name: e.target.value})} />
+            </div>
+            <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Full Address</label>
+                <textarea placeholder="Shop Address" className="w-full border p-2 text-sm rounded outline-none h-20 mt-1" value={sData.address} onChange={e => setSData({...sData, address: e.target.value})} />
+            </div>
+            <div className="flex gap-3">
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">WhatsApp (Country Code)</label>
+                    <input type="text" placeholder="919876543210" className="w-full border-b py-2 text-sm outline-none" value={sData.whatsapp} onChange={e => setSData({...sData, whatsapp: e.target.value})} />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Display Phone</label>
+                    <input type="text" placeholder="+91 98765-43210" className="w-full border-b py-2 text-sm outline-none" value={sData.phone} onChange={e => setSData({...sData, phone: e.target.value})} />
+                </div>
+            </div>
+            <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Google Maps Link</label>
+                <input type="text" placeholder="https://goo.gl/maps/..." className="w-full border-b py-2 text-sm outline-none" value={sData.googleMapUrl} onChange={e => setSData({...sData, googleMapUrl: e.target.value})} />
+            </div>
+        </div>
+        <div className="flex gap-2 pt-2">
+          <button onClick={() => onSave(dData, sData)} className="flex-1 bg-[#2874f0] text-white py-3 font-bold text-xs uppercase rounded shadow-md">Update Shop Info</button>
           <button onClick={onClose} className="flex-1 bg-gray-100 text-gray-600 py-3 font-bold text-xs uppercase rounded">Close</button>
         </div>
       </div>
@@ -415,16 +544,23 @@ const DealerSettingsModal = ({ dealer, shopInfo, onClose, onSave }: any) => {
 const CustomerAdminModal = ({ users, onClose, onDeleteUser }: any) => (
   <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
     <div className="bg-white w-full max-w-md rounded-sm p-6 max-h-[80vh] flex flex-col">
-      <h2 className="font-bold uppercase text-sm border-b pb-2 mb-4">Customer Database</h2>
+      <h2 className="font-bold uppercase text-sm border-b pb-2 mb-4 flex justify-between">
+        Customer Database
+        <button onClick={onClose}>✕</button>
+      </h2>
       <div className="overflow-y-auto flex-1 space-y-2">
-        {users.map((u: any) => (
-          <div key={u.id} className="p-3 bg-gray-50 flex justify-between items-center rounded">
-            <div><p className="text-sm font-bold">{u.name}</p><p className="text-xs text-gray-500">{u.phoneNumber}</p></div>
-            <button onClick={() => onDeleteUser(u.id)} className="text-red-500 p-1"><TrashIcon /></button>
-          </div>
-        ))}
+        {users.length === 0 ? (
+            <p className="text-center py-10 text-gray-400 text-sm italic">No customers registered yet.</p>
+        ) : (
+            users.map((u: any) => (
+                <div key={u.id} className="p-3 bg-gray-50 flex justify-between items-center rounded border border-gray-100">
+                  <div><p className="text-sm font-bold">{u.name}</p><p className="text-xs text-gray-500">{u.phoneNumber}</p></div>
+                  <button onClick={() => onDeleteUser(u.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-full transition-colors"><TrashIcon /></button>
+                </div>
+              ))
+        )}
       </div>
-      <button onClick={onClose} className="mt-4 w-full bg-gray-800 text-white py-2 text-xs font-bold uppercase rounded">Close</button>
+      <button onClick={onClose} className="mt-4 w-full bg-gray-800 text-white py-3 text-xs font-bold uppercase rounded">Close</button>
     </div>
   </div>
 );
