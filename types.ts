@@ -9,6 +9,7 @@ export interface User {
   phoneNumber: string;
   password?: string;
   role: UserRole;
+  createdAt?: number;
 }
 
 export interface Product {
