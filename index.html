@@ -6,18 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mobile Hospital - Second Hand Mobiles & Accessories</title>
     
-    <!-- Primary Meta Tags -->
     <meta name="title" content="Mobile Hospital - Best Second Hand Mobiles">
     <meta name="description" content="Buy certified second-hand mobiles and premium accessories at best prices. Visit Mobile Hospital today!">
 
-    <!-- Open Graph / Facebook / WhatsApp Preview -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://mobile-hospital.vercel.app/">
     <meta property="og:title" content="Mobile Hospital - Trusted Mobile Shop">
     <meta property="og:description" content="Click to browse our latest inventory of used iPhones, Samsung and more. Quality guaranteed!">
     <meta property="og:image" content="https://images.unsplash.com/photo-1556656793-062ff987b50c?q=80&w=1000">
 
-    <!-- PWA / App-like Features -->
     <meta name="theme-color" content="#2874f0">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -27,13 +24,25 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script>
-        // Pre-configure process.env to prevent blank screen errors in browser environments
-        window.process = window.process || { env: { API_KEY: "" } };
+        // CRITICAL: Define process.env before any scripts load
+        window.process = { env: { API_KEY: "" } };
+        
+        // Error Handler for blank screen prevention
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("Critical Runtime Error:", message, "at", source, lineno);
+            // Optionally show a simple UI if the app fails to mount
+            if (document.getElementById('root') && document.getElementById('root').innerHTML === '') {
+                document.getElementById('root').innerHTML = '<div style="padding: 40px; text-align: center; font-family: sans-serif;"><h2>App Error</h2><p>Something went wrong. Please refresh the page.</p></div>';
+            }
+        };
     </script>
     <style>
         body { 
             font-family: 'Roboto', sans-serif; 
             -webkit-tap-highlight-color: transparent;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
         }
         
         ::-webkit-scrollbar { display: none; }
@@ -41,9 +50,6 @@
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        .custom-scrollbar::-webkit-scrollbar { display: none; width: 0; }
-        .custom-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
         img { pointer-events: none; }
 

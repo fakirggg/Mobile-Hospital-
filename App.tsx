@@ -5,7 +5,7 @@ import { INITIAL_PRODUCTS, SHOP_DETAILS, INITIAL_BANNERS } from './constants';
 import { PhoneIcon, MessageIcon, LocationIcon, PlusIcon, EditIcon, TrashIcon, SparklesIcon, UsersIcon, SettingsIcon, ShareIcon, BackIcon, BannerIcon, ShopLogo } from './components/Icons';
 import { generateProductDescription } from './services/geminiService';
 
-// Safe Storage Helper to prevent crashes
+// Safe Storage Helper to prevent crashes due to corrupted localStorage
 const getSafeStorage = <T,>(key: string, defaultValue: T): T => {
   try {
     const saved = localStorage.getItem(key);
@@ -39,7 +39,7 @@ const LiveClock: React.FC = () => {
 type AuthMode = 'login' | 'signup' | 'admin-login' | 'none';
 
 const App: React.FC = () => {
-  // Persistence States with Error Handling
+  // Persistence States - Hydrated once on load
   const [products, setProducts] = useState<Product[]>(() => getSafeStorage('shop_products', INITIAL_PRODUCTS));
   const [banners, setBanners] = useState<Banner[]>(() => getSafeStorage('shop_banners', INITIAL_BANNERS));
   const [users, setUsers] = useState<User[]>(() => {
@@ -51,28 +51,59 @@ const App: React.FC = () => {
       role: 'admin',
       createdAt: Date.now()
     };
-    return getSafeStorage('shop_users', [defaultAdmin]);
+    const savedUsers = getSafeStorage<User[]>('shop_users', []);
+    // Ensure the default admin always exists
+    if (!savedUsers.some(u => u.role === 'admin')) return [defaultAdmin, ...savedUsers];
+    return savedUsers;
   });
   
   const [shopInfo, setShopInfo] = useState<ShopInfo>(() => getSafeStorage('shop_info', SHOP_DETAILS));
   const [currentUser, setCurrentUser] = useState<User | null>(() => getSafeStorage('shop_current_user', null));
-  const [authMode, setAuthMode] = useState<AuthMode>(() => currentUser ? 'none' : 'login');
+  const [authMode, setAuthMode] = useState<AuthMode>(() => {
+    const user = getSafeStorage<User | null>('shop_current_user', null);
+    return user ? 'none' : 'login';
+  });
+
+  // SINGLE DECLARATION of authFormData to prevent syntax errors
+  const [authFormData, setAuthFormData] = useState({ name: '', phoneNumber: '', password: '' });
+
+  // Persistence Effects
+  useEffect(() => { localStorage.setItem('shop_products', JSON.stringify(products)); }, [products]);
+  useEffect(() => { localStorage.setItem('shop_banners', JSON.stringify(banners)); }, [banners]);
+  useEffect(() => { localStorage.setItem('shop_users', JSON.stringify(users)); }, [users]);
+  useEffect(() => { localStorage.setItem('shop_info', JSON.stringify(shopInfo)); }, [shopInfo]);
+  useEffect(() => { 
+    if (currentUser) localStorage.setItem('shop_current_user', JSON.stringify(currentUser));
+    else localStorage.removeItem('shop_current_user');
+  }, [currentUser]);
+
+  const [activeTab, setActiveTab] = useState<Category | 'All'>('All');
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showCustomerAdminModal, setShowCustomerAdminModal] = useState(false);
+  const [showDealerSettingsModal, setShowDealerSettingsModal] = useState(false);
+  const [showBannerManagerModal, setShowBannerManagerModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentBanner, setCurrentBanner] = useState(0);
+  const bannerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('shop_products', JSON.stringify(products));
-      localStorage.setItem('shop_banners', JSON.stringify(banners));
-      localStorage.setItem('shop_users', JSON.stringify(users));
-      localStorage.setItem('shop_info', JSON.stringify(shopInfo));
-      if (currentUser) {
-        localStorage.setItem('shop_current_user', JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem('shop_current_user');
-      }
-    } catch (e) {
-      console.error("Failed to sync storage:", e);
-    }
-  }, [products, banners, users, currentUser, shopInfo]);
+    if (banners.length <= 1) return;
+    if (bannerTimerRef.current) clearInterval(bannerTimerRef.current);
+    bannerTimerRef.current = setInterval(() => {
+      setCurrentBanner((prev) => (prev + 1) % banners.length);
+    }, 4000);
+    return () => { if (bannerTimerRef.current) clearInterval(bannerTimerRef.current); };
+  }, [banners.length]);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesTab = activeTab === 'All' || p.category === activeTab;
+      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesTab && matchesSearch;
+    });
+  }, [products, activeTab, searchQuery]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +139,7 @@ const App: React.FC = () => {
       role: 'customer',
       createdAt: Date.now()
     };
-    setUsers([...users, newUser]);
+    setUsers(prev => [...prev, newUser]);
     setCurrentUser(newUser);
     setAuthMode('none');
     alert('Account ban gaya hai! Swagat hai.');
@@ -135,36 +166,6 @@ const App: React.FC = () => {
     setAuthFormData({ name: '', phoneNumber: '', password: '' });
   };
 
-  const [activeTab, setActiveTab] = useState<Category | 'All'>('All');
-  const [showAdminModal, setShowAdminModal] = useState(false);
-  const [showCustomerAdminModal, setShowCustomerAdminModal] = useState(false);
-  const [showDealerSettingsModal, setShowDealerSettingsModal] = useState(false);
-  const [showBannerManagerModal, setShowBannerManagerModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentBanner, setCurrentBanner] = useState(0);
-  const bannerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (banners.length === 0) return;
-    if (bannerTimerRef.current) clearInterval(bannerTimerRef.current);
-    bannerTimerRef.current = setInterval(() => {
-      setCurrentBanner((prev) => (prev + 1) % banners.length);
-    }, 4000);
-    return () => {
-      if (bannerTimerRef.current) clearInterval(bannerTimerRef.current);
-    };
-  }, [banners.length]);
-
-  const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const matchesTab = activeTab === 'All' || p.category === activeTab;
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesTab && matchesSearch;
-    });
-  }, [products, activeTab, searchQuery]);
-
   const handleShare = async () => {
     const shareData = { title: shopInfo.name, text: `Check this out!`, url: window.location.href };
     try {
@@ -186,8 +187,6 @@ const App: React.FC = () => {
     if (e) e.stopPropagation();
     window.location.href = `tel:${shopInfo.phone}`;
   };
-
-  const [authFormData, setAuthFormData] = useState({ name: '', phoneNumber: '', password: '' });
 
   if (authMode !== 'none') {
     return (
@@ -330,12 +329,17 @@ const App: React.FC = () => {
               {currentUser?.role === 'admin' && (
                 <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
                   <button onClick={() => {setEditingProduct(p); setShowAdminModal(true)}} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><EditIcon /></button>
-                  <button onClick={() => {if(confirm('Delete?')) setProducts(products.filter(pr => pr.id !== p.id))}} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><TrashIcon /></button>
+                  <button onClick={() => {if(confirm('Delete?')) setProducts(prev => prev.filter(pr => pr.id !== p.id))}} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><TrashIcon /></button>
                 </div>
               )}
             </div>
           </div>
         ))}
+        {filteredProducts.length === 0 && (
+          <div className="col-span-full py-20 text-center bg-white">
+            <p className="text-gray-400 italic">No products found.</p>
+          </div>
+        )}
       </main>
 
       <footer className="max-w-4xl mx-auto px-4 mt-6 text-center">
@@ -356,26 +360,30 @@ const App: React.FC = () => {
 
       {currentUser?.role === 'admin' && (
         <div className="fixed bottom-24 right-4 flex flex-col gap-3 z-50">
-          <button onClick={() => setShowDealerSettingsModal(true)} className="bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><SettingsIcon /></button>
-          <button onClick={() => setShowBannerManagerModal(true)} className="bg-orange-500 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><BannerIcon /></button>
-          <button onClick={() => setShowCustomerAdminModal(true)} className="bg-emerald-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><UsersIcon /></button>
-          <button onClick={() => {setEditingProduct(null); setShowAdminModal(true)}} className="bg-[#2874f0] text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><PlusIcon /></button>
+          <button onClick={() => setShowDealerSettingsModal(true)} title="Store Settings" className="bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><SettingsIcon /></button>
+          <button onClick={() => setShowBannerManagerModal(true)} title="Manage Banners" className="bg-orange-500 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><BannerIcon /></button>
+          <button onClick={() => setShowCustomerAdminModal(true)} title="Customers" className="bg-emerald-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><UsersIcon /></button>
+          <button onClick={() => {setEditingProduct(null); setShowAdminModal(true)}} title="Add Product" className="bg-[#2874f0] text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-all border-4 border-white"><PlusIcon /></button>
         </div>
       )}
 
       {selectedProduct && <ProductDetailsModal product={selectedProduct} onClose={() => setSelectedProduct(null)} onWhatsApp={openWhatsApp} onCall={makeCall} />}
       {showAdminModal && <AdminModal product={editingProduct} onClose={() => setShowAdminModal(false)} onSave={(p: Product) => {
-        if(editingProduct) setProducts(products.map(item => item.id === p.id ? p : item));
-        else setProducts([{...p, id: Date.now().toString(), createdAt: Date.now()}, ...products]);
+        if(editingProduct) setProducts(prev => prev.map(item => item.id === p.id ? p : item));
+        else {
+          setProducts(prev => [{...p, id: Date.now().toString(), createdAt: Date.now()}, ...prev]);
+          setActiveTab(p.category);
+        }
         setShowAdminModal(false);
       }} />}
       {showDealerSettingsModal && <DealerSettingsModal shopInfo={shopInfo} onClose={() => setShowDealerSettingsModal(false)} onSave={(s: ShopInfo) => {setShopInfo(s); setShowDealerSettingsModal(false)}} />}
-      {showBannerManagerModal && <BannerManagerModal banners={banners} onClose={() => setShowBannerManagerModal(false)} onSave={(b: Banner[]) => {setBanners(b); setShowBannerManagerModal(false)}} />}
-      {showCustomerAdminModal && <CustomerAdminModal users={users.filter(u => u.role === 'customer')} onClose={() => setShowCustomerAdminModal(false)} onDeleteUser={(id: string) => setUsers(users.filter(u => u.id !== id))} />}
+      {showBannerManagerModal && <BannerManagerModal banners={banners} onClose={() => setShowBannerManagerModal(false)} onSave={(updated: Banner[]) => {setBanners(updated); setShowBannerManagerModal(false)}} />}
+      {showCustomerAdminModal && <CustomerAdminModal users={users.filter(u => u.role === 'customer')} onClose={() => setShowCustomerAdminModal(false)} onDeleteUser={(id: string) => setUsers(prev => prev.filter(u => u.id !== id))} />}
     </div>
   );
 };
 
+// ... Internal Component Parts (ProductDetailsModal, AdminModal, etc.)
 const ProductDetailsModal = ({ product, onClose, onWhatsApp, onCall }: any) => (
   <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div className="bg-white w-full max-w-lg rounded-t-[32px] sm:rounded-3xl overflow-hidden text-left flex flex-col max-h-[95vh] shadow-2xl">
@@ -417,7 +425,7 @@ const AdminModal = ({ product, onClose, onSave }: any) => {
     if(!formData.name) return alert('Pehle Product Name likhein!');
     setLoading(true);
     const desc = await generateProductDescription(formData.name, formData.condition, formData.category);
-    setFormData({...formData, description: desc});
+    setFormData(prev => ({...prev, description: desc}));
     setLoading(false);
   };
 
@@ -425,7 +433,7 @@ const AdminModal = ({ product, onClose, onSave }: any) => {
     const f = e.target.files?.[0];
     if(f) {
       const r = new FileReader();
-      r.onloadend = () => setFormData({...formData, image: r.result as string});
+      r.onloadend = () => setFormData(prev => ({...prev, image: r.result as string}));
       r.readAsDataURL(f);
     }
   };
@@ -464,18 +472,6 @@ const AdminModal = ({ product, onClose, onSave }: any) => {
              </select>
            </div>
         </div>
-        {formData.category === 'Mobile' && (
-          <div className="flex gap-4 animate-in fade-in duration-300">
-             <div className="flex-1 space-y-1">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">RAM</label>
-               <input type="text" placeholder="8GB" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm font-bold focus:border-[#2874f0]" value={formData.specs.ram} onChange={e => setFormData({...formData, specs: {...formData.specs, ram: e.target.value}})} />
-             </div>
-             <div className="flex-1 space-y-1">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Storage</label>
-               <input type="text" placeholder="256GB" className="w-full border-b-2 border-gray-100 py-3 outline-none text-sm font-bold focus:border-[#2874f0]" value={formData.specs.storage} onChange={e => setFormData({...formData, specs: {...formData.specs, storage: e.target.value}})} />
-             </div>
-          </div>
-        )}
         <div className="space-y-1">
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Condition</label>
           <select className="w-full border-b-2 border-gray-100 py-3 text-sm outline-none bg-transparent font-bold focus:border-[#2874f0]" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value as any})}>
@@ -553,22 +549,16 @@ const BannerManagerModal = ({ banners, onClose, onSave }: any) => {
     'bg-black'
   ];
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if(f) {
-      const r = new FileReader();
-      r.onloadend = () => setForm({...form, image: r.result as string});
-      r.readAsDataURL(f);
-    }
-  };
-
-  const handleSaveBanner = () => {
+  const handleSaveBannerLocal = () => {
     if(!form.image || !form.title) return alert('Photo aur Title zaroori hai!');
+    let updated;
     if (editingId) {
-      setB(b.map(item => item.id === editingId ? { ...form, id: editingId } : item));
+      updated = b.map(item => item.id === editingId ? { ...form, id: editingId } : item);
     } else {
-      setB([{ ...form, id: Date.now().toString() }, ...b]);
+      updated = [{ ...form, id: Date.now().toString() }, ...b];
     }
+    setB(updated);
+    onSave(updated);
     resetForm();
   };
 
@@ -578,12 +568,6 @@ const BannerManagerModal = ({ banners, onClose, onSave }: any) => {
     setEditingId(null);
   };
 
-  const startEdit = (banner: Banner) => {
-    setForm(banner);
-    setEditingId(banner.id);
-    setIsAdding(true);
-  };
-
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-3xl p-6 flex flex-col max-h-[95vh] text-left shadow-2xl overflow-hidden">
@@ -591,115 +575,38 @@ const BannerManagerModal = ({ banners, onClose, onSave }: any) => {
           <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Slider Banners Dashboard</h2>
           <button onClick={onClose} className="p-2 text-gray-400">✕</button>
         </div>
-
         <div className="overflow-y-auto flex-1 py-4 no-scrollbar space-y-6">
-          {!isAdding ? (
-            <button 
-              onClick={() => setIsAdding(true)} 
-              className="w-full border-2 border-dashed border-gray-200 py-6 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-gray-50 transition-colors group"
-            >
-              <div className="bg-[#2874f0] text-white p-2 rounded-full group-hover:scale-110 transition-transform"><PlusIcon /></div>
-              <p className="text-xs font-black uppercase text-gray-400 tracking-widest">Add New Banner Ad</p>
-            </button>
-          ) : (
-            <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-5 animate-in slide-in-from-top duration-300">
-               <div className="flex justify-between items-center">
-                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                   {editingId ? 'Edit Banner Details' : 'Banner Configurator'}
-                 </p>
-                 <button onClick={resetForm} className="text-[10px] font-bold text-red-400 uppercase">Cancel</button>
-               </div>
-
-               <div className="space-y-2">
-                 <p className="text-[9px] font-bold text-gray-400 uppercase ml-1">Live Preview</p>
-                 <div className={`relative h-28 rounded-2xl overflow-hidden shadow-lg ${form.bg} flex items-center p-4 text-white ring-2 ring-white`}>
-                    <div className="flex-1 z-10">
-                      <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded font-bold uppercase mb-1 inline-block">{form.tag || 'TAG'}</span>
-                      <h2 className="text-sm font-bold truncate">{form.title || 'New Heading'}</h2>
-                      <p className="text-[10px] opacity-80 truncate">{form.subtitle || 'Short subtext goes here...'}</p>
-                    </div>
-                    <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-40">
-                      {form.image && <img src={form.image} className="h-full w-full object-cover" alt="banner preview" />}
-                    </div>
+           <button onClick={() => setIsAdding(true)} className="w-full border-2 border-dashed border-gray-200 py-6 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-gray-50 transition-colors">
+              <PlusIcon />
+              <p className="text-xs font-black uppercase text-gray-400 tracking-widest">Add New Banner</p>
+           </button>
+           {isAdding && (
+              <div className="bg-gray-50 p-4 rounded-2xl space-y-4">
+                 <input type="text" placeholder="Title" className="w-full p-3 rounded-xl border" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+                 <input type="text" placeholder="Subtitle" className="w-full p-3 rounded-xl border" value={form.subtitle} onChange={e => setForm({...form, subtitle: e.target.value})} />
+                 <input type="text" placeholder="Tag" className="w-full p-3 rounded-xl border" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})} />
+                 <div className="flex gap-2">
+                   {gradients.map(g => <div key={g} onClick={() => setForm({...form, bg: g})} className={`w-8 h-8 rounded-full cursor-pointer border-2 ${g} ${form.bg === g ? 'border-blue-500' : 'border-transparent'}`}></div>)}
                  </div>
-               </div>
-
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Tag Label (Offer Type)</label>
-                    <input type="text" placeholder="e.g. OFFER, FLAT 50%" className="w-full bg-white border rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-[#2874f0]" value={form.tag} onChange={e => setForm({...form, tag: e.target.value.toUpperCase()})} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Banner Background</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {gradients.map(g => (
-                        <button key={g} onClick={() => setForm({...form, bg: g})} className={`w-6 h-6 rounded-full border-2 ${g} ${form.bg === g ? 'ring-2 ring-offset-1 ring-[#2874f0]' : 'border-white shadow-sm'}`}></button>
-                      ))}
-                    </div>
-                  </div>
-               </div>
-
-               <div className="space-y-1">
-                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Main Heading (Offer Name)</label>
-                 <input type="text" placeholder="e.g. Buy iPhone 15 at Lowest Price" className="w-full bg-white border rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-[#2874f0]" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
-               </div>
-
-               <div className="space-y-1">
-                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Description (Offer Subtext)</label>
-                 <input type="text" placeholder="e.g. Limited time offer till Sunday" className="w-full bg-white border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#2874f0]" value={form.subtitle} onChange={e => setForm({...form, subtitle: e.target.value})} />
-               </div>
-
-               <div className="flex gap-4 items-end">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Photo (Upload Art/Product)</label>
-                    <div className="relative border-2 border-dashed border-gray-300 rounded-xl bg-white p-4 flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                       <p className="text-[10px] text-gray-400 font-bold uppercase">{form.image ? 'File Selected ✓' : 'Click to Upload'}</p>
-                       <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleUpload} />
-                    </div>
-                  </div>
-                  <button onClick={handleSaveBanner} className="bg-blue-600 text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase shadow-xl shadow-blue-500/20 active:scale-90 transition-all">
-                    {editingId ? 'Update Banner' : 'Add Banner'}
-                  </button>
-               </div>
-            </div>
-          )}
-
-          <div className="space-y-4">
-             <div className="flex justify-between items-center px-1">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Store Banners</p>
-                <p className="text-[9px] font-bold text-gray-300 uppercase">{b.length} Banners</p>
-             </div>
-             <div className="grid grid-cols-1 gap-3">
-               {b.map((item, i) => (
-                <div key={item.id} className="p-3 bg-white border rounded-2xl flex items-center gap-4 group hover:shadow-md transition-all">
-                  <div className={`w-16 h-10 rounded-lg shrink-0 overflow-hidden ${item.bg} flex items-center justify-center`}>
-                    {item.image && <img src={item.image} className="w-full h-full object-cover opacity-60" alt="banner art" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black truncate text-gray-800 leading-tight uppercase">{item.title}</p>
-                    <p className="text-[9px] text-gray-400 font-medium truncate">{item.subtitle}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => startEdit(item)} className="text-blue-500 p-2 hover:bg-blue-50 rounded-lg transition-colors"><EditIcon /></button>
-                    <button onClick={() => { if(confirm('Delete banner?')) setB(b.filter((_, idx) => idx !== i))}} className="text-red-400 p-2 hover:bg-red-50 rounded-lg transition-colors"><TrashIcon /></button>
-                  </div>
+                 <button onClick={handleSaveBannerLocal} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold uppercase text-xs">Save Banner</button>
+              </div>
+           )}
+           <div className="grid grid-cols-1 gap-2">
+             {b.map(item => (
+                <div key={item.id} className="p-3 bg-white border rounded-xl flex items-center justify-between">
+                   <div className="truncate pr-4"><p className="text-xs font-bold truncate">{item.title}</p></div>
+                   <button onClick={() => { if(confirm('Delete?')) { const u = b.filter(x => x.id !== item.id); setB(u); onSave(u); }}} className="text-red-500"><TrashIcon /></button>
                 </div>
-               ))}
-               {b.length === 0 && <p className="text-center py-10 text-xs text-gray-300 italic">No banners active in store slider.</p>}
-             </div>
-          </div>
+             ))}
+           </div>
         </div>
-
-        <div className="pt-4 border-t shrink-0">
-          <button onClick={() => onSave(b)} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Apply Dashboard Slider Updates</button>
-        </div>
+        <button onClick={onClose} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs mt-4">Close</button>
       </div>
     </div>
   );
 };
 
 const CustomerAdminModal = ({ users, onClose, onDeleteUser }: any) => {
-  const formatDate = (ts?: number) => ts ? new Date(ts).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Unknown';
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md rounded-3xl p-6 flex flex-col max-h-[80vh] text-left shadow-2xl">
@@ -707,23 +614,19 @@ const CustomerAdminModal = ({ users, onClose, onDeleteUser }: any) => {
           <h2 className="font-black text-xs uppercase tracking-widest text-gray-400">Customer Database</h2>
           <button onClick={onClose} className="p-2 text-gray-400">✕</button>
         </div>
-        <div className="overflow-y-auto flex-1 py-4 space-y-3 no-scrollbar pr-1">
+        <div className="overflow-y-auto flex-1 py-4 space-y-3 no-scrollbar">
           {users.map((u: any) => (
-            <div key={u.id} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center border border-gray-100 hover:border-blue-200 transition-colors">
+            <div key={u.id} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center border">
               <div>
                 <p className="text-sm font-black text-gray-800">{u.name}</p>
                 <p className="text-xs text-[#2874f0] font-black">{u.phoneNumber}</p>
-                <div className="flex items-center gap-1 mt-1 text-[9px] text-gray-400 font-mono">
-                  <span className="w-1 h-1 bg-green-500 rounded-full"></span>
-                  Member since: {formatDate(u.createdAt)}
-                </div>
               </div>
-              <button onClick={() => { if(confirm('Delete user permanently?')) onDeleteUser(u.id); }} className="text-red-500 p-2.5 hover:bg-red-100 rounded-xl transition-colors"><TrashIcon /></button>
+              <button onClick={() => { if(confirm('Delete user?')) onDeleteUser(u.id); }} className="text-red-500"><TrashIcon /></button>
             </div>
           ))}
-          {users.length === 0 && <p className="text-center py-14 text-xs text-gray-400 italic">Database is empty.</p>}
+          {users.length === 0 && <p className="text-center py-10 text-xs text-gray-400 italic">No customers yet.</p>}
         </div>
-        <button onClick={onClose} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest mt-2 active:scale-95 transition-all">Back to Dashboard</button>
+        <button onClick={onClose} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black uppercase text-xs mt-2">Back</button>
       </div>
     </div>
   );
